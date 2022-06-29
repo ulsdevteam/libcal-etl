@@ -1,0 +1,8 @@
+﻿.env
+*.twb*
+*.csv
+*.db*
+.idea/
+*.DotSettings.user
+bin/
+obj/
