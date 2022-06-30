@@ -22,6 +22,7 @@ class Updater
             // Should the number of ids being sent per call be limited? Haven't hit the API max yet
             var registrations = (await LibCalClient.GetRegistrations(events.Select(e => e.Id)))
                 .ToDictionary(r => r.EventId, r => r.Registrants);
+            // @ sign because event is a reserved keyword
             foreach (var @event in events)
             {
                 @event.Registrants = registrations[@event.Id];

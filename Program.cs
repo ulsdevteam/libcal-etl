@@ -25,17 +25,17 @@ await parser.ParseArguments<UpdateOptions>(args).WithParsedAsync(async updateOpt
     var fromDate = updateOptions.FromDate ?? DateTime.Today.AddMonths(-1);
     var toDate = updateOptions.ToDate ?? DateTime.Today;
 
-    if (updateOptions.UpdateChoices.HasFlag(UpdateChoices.Events))
+    if (updateOptions.Sources.HasFlag(DataSources.Events))
     {
         await updater.UpdateEvents(fromDate, toDate);
     }
 
-    if (updateOptions.UpdateChoices.HasFlag(UpdateChoices.Appointments))
+    if (updateOptions.Sources.HasFlag(DataSources.Appointments))
     {
         await updater.UpdateAppointments(fromDate, toDate);
     }
 
-    if (updateOptions.UpdateChoices.HasFlag(UpdateChoices.Spaces))
+    if (updateOptions.Sources.HasFlag(DataSources.Spaces))
     {
         await updater.UpdateSpaces();
     }

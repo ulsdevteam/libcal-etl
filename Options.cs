@@ -8,16 +8,15 @@ class UpdateOptions
     [Option('t', "to", Required = false, HelpText = "To date, defaults to today")]
     public DateTime? ToDate { get; set; }
 
-    [Value(0, Required = true, HelpText =
+    [Option('s', Required = true, HelpText =
             "Which data sources to update, separated by commas. " +
-            "Accepted values are: events, appointments, spaces, all.",
-        MetaName = "sources"
+            "Accepted values are: events, appointments, spaces, all."
     )]
-    public UpdateChoices UpdateChoices { get; set; }
+    public DataSources Sources { get; set; }
 }
 
 [Flags]
-enum UpdateChoices
+enum DataSources
 {
     Events = 1,
     Appointments = 2,
