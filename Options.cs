@@ -1,5 +1,6 @@
 ﻿using CommandLine;
 
+[Verb("update")]
 class UpdateOptions
 {
     [Option('f', "from", Required = false, HelpText = "From date, defaults to one month before today")]
@@ -8,7 +9,7 @@ class UpdateOptions
     [Option('t', "to", Required = false, HelpText = "To date, defaults to today")]
     public DateTime? ToDate { get; set; }
 
-    [Option('s', Required = true, HelpText =
+    [Value(0, Required = true, MetaName = "sources", HelpText =
             "Which data sources to update, separated by commas. " +
             "Accepted values are: events, appointments, spaces, all."
     )]
@@ -22,4 +23,11 @@ enum DataSources
     Appointments = 2,
     Spaces = 4,
     All = 7
+}
+
+[Verb("batch")]
+class BatchOptions
+{
+    [Value(0, MetaName = "files")]
+    public IEnumerable<string> Files { get; set; }
 }

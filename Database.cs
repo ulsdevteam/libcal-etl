@@ -19,17 +19,18 @@ class Database : DbContext
     public void Upsert<T>(T item) where T : class
     {
         var entry = Entry(item);
-        if (entry.GetDatabaseValues() is not null)
+        if (entry.GetDatabaseValues() is null)
+        {
+            Add(item);
+        }
+        else
         {
             Update(item);
             // Update sets the state of all child objects to modified by default, but some may be newly added so we need to check
             // If we had deeper nesting, this function would probably need to be recursive, or another strategy could be used
             foreach (var collection in entry.Collections)
             {
-                if (collection.CurrentValue is null)
-                {
-                    continue;
-                }
+                if (collection.CurrentValue is null) { continue; }
 
                 foreach (var childItem in collection.CurrentValue)
                 {
@@ -40,10 +41,6 @@ class Database : DbContext
                     }
                 }
             }
-        }
-        else
-        {
-            Add(item);
         }
     }
 
@@ -70,6 +67,7 @@ class Database : DbContext
                 categories.ToTable("LIBCAL_CATEGORIES");
                 categories.WithOwner().HasForeignKey(c => c.EventId);
                 categories.HasKey(c => new { c.EventId, c.Id });
+                // I think ValueGeneratedNever isn't needed here since its a composite key
             });
             events.OwnsMany(e => e.Registrants, registrants =>
             {
@@ -139,7 +137,6 @@ class Database : DbContext
         options.UseUpperSnakeCaseNamingConvention();
     }
 
-    // ReSharper disable once UnusedType.Local
     class MigrationFactory : IDesignTimeDbContextFactory<Database>
     {
         // Called to configure the connection when using the cli migration tools
