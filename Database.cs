@@ -24,15 +24,17 @@ class Database : DbContext
         if (entry.GetDatabaseValues() is not null)
         {
             Update(item);
+            // Update sets the state of all child objects to modified by default, but some may be newly added so we need to check
+            // If we had deeper nesting, this function would probably need to be recursive, or another strategy could be used
             foreach (var collection in entry.Collections)
             {
                 if (collection.CurrentValue is null) continue;
-                foreach (var nestedItem in collection.CurrentValue)
+                foreach (var childItem in collection.CurrentValue)
                 {
-                    var nestedEntry = collection.FindEntry(nestedItem);
-                    if (nestedEntry is not null && nestedEntry.GetDatabaseValues() is null)
+                    var childEntry = collection.FindEntry(childItem);
+                    if (childEntry is not null && childEntry.GetDatabaseValues() is null)
                     {
-                        nestedEntry.State = EntityState.Added;
+                        childEntry.State = EntityState.Added;
                     }
                 }
             }
