@@ -122,7 +122,7 @@ public class Event
 
     [JsonProperty("online_provider")]
     public string OnlineProvider { get; set; }
-    
+
     [JsonIgnore]
     public List<Registrant> Registrants { get; set; }
 }

@@ -1,18 +1,16 @@
 ﻿using LibCalTypes;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Design;
 
 /// <summary>
-/// Defines the SQL table schema and encapsulates 
+/// Defines the SQL table schema and encapsulates
 /// </summary>
 class Database : DbContext
 {
     public Database(DbContextOptions options) : base(options)
     {
-        
     }
-    
+
     /// <summary>
     /// Add an entity to the context, setting its state to Added if it does not already exist, or Modified if it does.
     /// </summary>
@@ -28,7 +26,11 @@ class Database : DbContext
             // If we had deeper nesting, this function would probably need to be recursive, or another strategy could be used
             foreach (var collection in entry.Collections)
             {
-                if (collection.CurrentValue is null) continue;
+                if (collection.CurrentValue is null)
+                {
+                    continue;
+                }
+
                 foreach (var childItem in collection.CurrentValue)
                 {
                     var childEntry = collection.FindEntry(childItem);
@@ -90,7 +92,7 @@ class Database : DbContext
             // TODO: Can I safely ignore this? What types should be used if not?
             events.Ignore(e => e.Geolocation);
         });
-        
+
         builder.Entity<AppointmentBooking>(bookings =>
         {
             bookings.ToTable("LIBCAL_APPOINTMENT_BOOKINGS");

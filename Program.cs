@@ -5,7 +5,12 @@ using Microsoft.Extensions.Configuration;
 
 DotEnv.Load();
 var config = new ConfigurationBuilder().AddEnvironmentVariables().Build();
-var parser = new Parser(options => { options.CaseInsensitiveEnumValues = true; });
+var parser = new Parser(settings =>
+{
+    settings.AutoHelp = true;
+    settings.CaseInsensitiveEnumValues = true;
+    settings.HelpWriter = Console.Error;
+});
 await parser.ParseArguments<UpdateOptions>(args).WithParsedAsync(async updateOptions =>
 {
     var libCalClient = new LibCalClient();
@@ -15,7 +20,7 @@ await parser.ParseArguments<UpdateOptions>(args).WithParsedAsync(async updateOpt
         .Options;
     await using var db = new Database(dbOptions);
     db.Database.EnsureCreated();
-    
+
     var updater = new Updater(db, libCalClient);
     var fromDate = updateOptions.FromDate ?? DateTime.Today.AddMonths(-1);
     var toDate = updateOptions.ToDate ?? DateTime.Today;

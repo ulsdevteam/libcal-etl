@@ -25,7 +25,11 @@ class Updater
             foreach (var @event in events)
             {
                 @event.Registrants = registrations[@event.Id];
-                foreach (var category in @event.Category) category.EventId = @event.Id;
+                foreach (var category in @event.Category)
+                {
+                    category.EventId = @event.Id;
+                }
+
                 Database.Upsert(@event);
             }
         }
@@ -44,20 +48,28 @@ class Updater
                 answer.BookingId = booking.Id;
                 // HashSet.Add returns true only if the element was not already in the set, so this filters out question ids we already saw
                 if (questionsSeen.Add(answer.QuestionId))
+                {
                     newQuestionIds.Add(answer.QuestionId);
+                }
             }
 
             if (newQuestionIds.Any())
+            {
                 foreach (var question in await LibCalClient.GetAppointmentQuestions(newQuestionIds))
                 {
                     // If question.Options is null, assign an empty list to it
                     foreach (var option in question.Options ??= new List<QuestionOption>())
+                    {
                         option.QuestionId = question.Id;
+                    }
+
                     Database.Upsert(question);
                 }
+            }
 
             Database.Upsert(booking);
             if (usersSeen.Add(booking.UserId))
+            {
                 try
                 {
                     var user = await LibCalClient.GetAppointmentUser(booking.UserId);
@@ -75,12 +87,16 @@ class Updater
                         throw;
                     }
                 }
+            }
         }
     }
 
     public async Task UpdateSpaces()
     {
         var bookings = await LibCalClient.GetSpaceBookings();
-        foreach (var booking in bookings) Database.Upsert(booking);
+        foreach (var booking in bookings)
+        {
+            Database.Upsert(booking);
+        }
     }
 }

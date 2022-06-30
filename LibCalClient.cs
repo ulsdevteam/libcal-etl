@@ -61,7 +61,10 @@ class LibCalClient
     /// <summary>
     /// Given a list of event ids, gets registrant info for those events.
     /// </summary>
-    /// <param name="eventIds">List of event ids. Unclear from the API docs what the upper limit is on the number of ids per call.</param>
+    /// <param name="eventIds">
+    /// List of event ids.
+    /// Unclear from the API docs what the upper limit is on the number of ids per call.
+    /// </param>
     /// <returns></returns>
     public async Task<List<RegistrationsResponse>> GetRegistrations(IEnumerable<long> eventIds)
     {
@@ -115,7 +118,6 @@ class LibCalClient
 
     /// <summary>
     /// Get all data between two given dates by splitting them into periods.
-    ///
     /// Each individual call has a limit of 500, so if you are hitting that limit, try reducing the period.
     /// </summary>
     /// <param name="request"></param>
@@ -151,7 +153,6 @@ class LibCalClient
 
     /// <summary>
     /// Get all data between two given dates by splitting them into periods.
-    ///
     /// Each individual call has a limit of 500, so if you are hitting that limit, try reducing the period.
     /// </summary>
     /// <param name="request"></param>
