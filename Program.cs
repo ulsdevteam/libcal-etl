@@ -1,7 +1,10 @@
 ﻿using System.Globalization;
+using System.Net.Http.Headers;
 using CommandLine;
 using CsvHelper;
 using dotenv.net;
+using Flurl.Http;
+using LibCalTypes;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.FileSystemGlobbing;
@@ -17,23 +20,101 @@ var parser = new Parser(settings =>
     settings.CaseInsensitiveEnumValues = true;
     settings.HelpWriter = Console.Error;
 });
-await parser.ParseArguments<UpdateOptions, BatchOptions>(args).MapResult(async (UpdateOptions updateOptions) =>
+
+await parser.ParseArguments<UpdateOptions, BatchOptions>(args)
+    .MapResult<UpdateOptions, BatchOptions, Task>(RunUpdate, RunBatch, _ => Task.CompletedTask);
+
+async Task RunUpdate(UpdateOptions updateOptions)
 {
     var libCalClient = new LibCalClient();
     await libCalClient.Authorize(config["LIBCAL_CLIENT_ID"], config["LIBCAL_CLIENT_SECRET"]);
     await using var db = new Database(dbOptions);
-    var updater = new Updater(db, libCalClient);
     var fromDate = updateOptions.FromDate ?? DateTime.Today.AddMonths(-1);
     var toDate = updateOptions.ToDate ?? DateTime.Today;
 
-    if (updateOptions.Sources.HasFlag(DataSources.Events)) { await updater.UpdateEvents(fromDate, toDate); }
+    if (updateOptions.Sources.HasFlag(DataSources.Events))
+    {
+        var calendarIds = await libCalClient.GetCalendarIds();
+        foreach (var calendarId in calendarIds)
+        {
+            var events = await libCalClient.GetEvents(calendarId, fromDate, toDate);
+            if (!events.Any()) { continue; }
 
-    if (updateOptions.Sources.HasFlag(DataSources.Appointments)) { await updater.UpdateAppointments(fromDate, toDate); }
+            // Should the number of ids being sent per call be limited? Haven't hit the API max yet
+            var registrations =
+                (await libCalClient.GetRegistrations(events.Select(e1 => e1.Id))).ToDictionary(r => r.EventId,
+                    r => r.Registrants);
+            // @ sign because event is a reserved keyword
+            foreach (var @event in events)
+            {
+                @event.Registrants = registrations[@event.Id];
+                foreach (var category in @event.Category) { category.EventId = @event.Id; }
 
-    if (updateOptions.Sources.HasFlag(DataSources.Spaces)) { await updater.UpdateSpaces(); }
+                db.Upsert(@event);
+            }
+        }
+    }
+
+    if (updateOptions.Sources.HasFlag(DataSources.Appointments))
+    {
+        var bookings = await libCalClient.GetAppointmentBookings(fromDate, toDate);
+        var questionsSeen = new HashSet<long>();
+        var usersSeen = new HashSet<long>();
+        foreach (var booking in bookings)
+        {
+            var newQuestionIds = new List<long>();
+            foreach (var answer in booking.Answers)
+            {
+                answer.BookingId = booking.Id;
+                // HashSet.Add returns true only if the element was not already in the set, so this filters out question ids we already saw
+                if (questionsSeen.Add(answer.QuestionId)) { newQuestionIds.Add(answer.QuestionId); }
+            }
+
+            if (newQuestionIds.Any())
+            {
+                foreach (var question in await libCalClient.GetAppointmentQuestions(newQuestionIds))
+                {
+                    // If question.Options is null, assign an empty list to it
+                    foreach (var option in question.Options ??= new List<QuestionOption>())
+                    {
+                        option.QuestionId = question.Id;
+                    }
+
+                    db.Upsert(question);
+                }
+            }
+
+            db.Upsert(booking);
+            if (usersSeen.Add(booking.UserId))
+            {
+                try
+                {
+                    var user = await libCalClient.GetAppointmentUser(booking.UserId);
+                    db.Upsert(user);
+                }
+                catch (FlurlHttpException exception)
+                {
+                    var response = await exception.GetResponseStringAsync();
+                    if (response == "No user/data found. Ensure user has MyScheduler enabled.")
+                    {
+                        // TODO: is it ok to just skip these?
+                    }
+                    else { throw; }
+                }
+            }
+        }
+    }
+
+    if (updateOptions.Sources.HasFlag(DataSources.Spaces))
+    {
+        var bookings = await libCalClient.GetSpaceBookings();
+        foreach (var booking in bookings) { db.Upsert(booking); }
+    }
 
     await db.SaveChangesAsync();
-}, async (BatchOptions batchOptions) =>
+}
+
+async Task RunBatch(BatchOptions batchOptions)
 {
     await using var db = new Database(dbOptions);
     // This is used to expand out glob/wildcard patterns in the input
@@ -44,7 +125,29 @@ await parser.ParseArguments<UpdateOptions, BatchOptions>(args).MapResult(async (
         Console.WriteLine(path);
         using var reader = new StreamReader(path);
         using var csv = new CsvReader(reader, CultureInfo.InvariantCulture);
-        throw new NotImplementedException();
+        if (Enumerable.Range(1, 11).All(i => string.IsNullOrEmpty(csv.GetField(i))))
+        {
+            // Old room booking format
+            do
+            {
+                csv.Read();
+                csv.ReadHeader();
+            } while (await csv.ReadAsync());
+        }
+        else
+        {
+            csv.ReadHeader();
+            while (await csv.ReadAsync())
+            {
+                // TODO: some sort of scheme to generate an id
+                var booking = new SpaceBooking
+                {
+
+                };
+                db.Add(booking);
+            }
+        }
     }
+
     await db.SaveChangesAsync();
-}, _ => Task.CompletedTask);
+}
