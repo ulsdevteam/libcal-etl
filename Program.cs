@@ -1,5 +1,4 @@
 ﻿using System.Globalization;
-using System.Net.Http.Headers;
 using CommandLine;
 using CsvHelper;
 using dotenv.net;
@@ -20,7 +19,6 @@ var parser = new Parser(settings =>
     settings.CaseInsensitiveEnumValues = true;
     settings.HelpWriter = Console.Error;
 });
-
 await parser.ParseArguments<UpdateOptions, BatchOptions>(args)
     .MapResult<UpdateOptions, BatchOptions, Task>(RunUpdate, RunBatch, _ => Task.CompletedTask);
 
@@ -29,21 +27,19 @@ async Task RunUpdate(UpdateOptions updateOptions)
     var libCalClient = new LibCalClient();
     await libCalClient.Authorize(config["LIBCAL_CLIENT_ID"], config["LIBCAL_CLIENT_SECRET"]);
     await using var db = new Database(dbOptions);
-    var fromDate = updateOptions.FromDate ?? DateTime.Today.AddMonths(-1);
-    var toDate = updateOptions.ToDate ?? DateTime.Today;
 
     if (updateOptions.Sources.HasFlag(DataSources.Events))
     {
         var calendarIds = await libCalClient.GetCalendarIds();
         foreach (var calendarId in calendarIds)
         {
-            var events = await libCalClient.GetEvents(calendarId, fromDate, toDate);
+            var events = await libCalClient.GetEvents(calendarId, updateOptions.FromDate, updateOptions.ToDate);
             if (!events.Any()) { continue; }
 
             // Should the number of ids being sent per call be limited? Haven't hit the API max yet
             var registrations =
-                (await libCalClient.GetRegistrations(events.Select(e1 => e1.Id))).ToDictionary(r => r.EventId,
-                    r => r.Registrants);
+                (await libCalClient.GetRegistrations(events.Select(e => e.Id)))
+                .ToDictionary(r => r.EventId, r => r.Registrants);
             // @ sign because event is a reserved keyword
             foreach (var @event in events)
             {
@@ -57,7 +53,7 @@ async Task RunUpdate(UpdateOptions updateOptions)
 
     if (updateOptions.Sources.HasFlag(DataSources.Appointments))
     {
-        var bookings = await libCalClient.GetAppointmentBookings(fromDate, toDate);
+        var bookings = await libCalClient.GetAppointmentBookings(updateOptions.FromDate, updateOptions.ToDate);
         var questionsSeen = new HashSet<long>();
         var usersSeen = new HashSet<long>();
         foreach (var booking in bookings)
@@ -125,7 +121,7 @@ async Task RunBatch(BatchOptions batchOptions)
         Console.WriteLine(path);
         using var reader = new StreamReader(path);
         using var csv = new CsvReader(reader, CultureInfo.InvariantCulture);
-        if (Enumerable.Range(1, 11).All(i => string.IsNullOrEmpty(csv.GetField(i))))
+        if (string.IsNullOrEmpty(csv.GetField(csv.ColumnCount -1)))
         {
             // Old room booking format
             do
@@ -140,10 +136,7 @@ async Task RunBatch(BatchOptions batchOptions)
             while (await csv.ReadAsync())
             {
                 // TODO: some sort of scheme to generate an id
-                var booking = new SpaceBooking
-                {
-
-                };
+                var booking = new SpaceBooking();
                 db.Add(booking);
             }
         }

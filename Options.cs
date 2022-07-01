@@ -3,11 +3,22 @@
 [Verb("update")]
 class UpdateOptions
 {
+    DateTime? _fromDate;
+    DateTime? _toDate;
+
     [Option('f', "from", Required = false, HelpText = "From date, defaults to one month before today")]
-    public DateTime? FromDate { get; set; }
+    public DateTime FromDate
+    {
+        get => _fromDate ?? DateTime.Today.AddMonths(-1);
+        set => _fromDate = value;
+    }
 
     [Option('t', "to", Required = false, HelpText = "To date, defaults to today")]
-    public DateTime? ToDate { get; set; }
+    public DateTime ToDate
+    {
+        get => _toDate ?? DateTime.Today;
+        set => _toDate = value;
+    }
 
     [Value(0, Required = true, MetaName = "sources", HelpText =
             "Which data sources to update, separated by commas. " +

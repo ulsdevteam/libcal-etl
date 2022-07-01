@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
 
 /// <summary>
-/// Defines the SQL table schema and encapsulates
+/// Defines the SQL table schema and encapsulates the connection to the database.
 /// </summary>
 class Database : DbContext
 {
