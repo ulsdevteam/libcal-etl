@@ -104,7 +104,7 @@ async Task RunUpdate(UpdateOptions updateOptions)
 
     if (updateOptions.Sources.HasFlag(DataSources.Spaces))
     {
-        var bookings = await libCalClient.GetSpaceBookings();
+        var bookings = await libCalClient.GetSpaceBookings(updateOptions.FromDate, updateOptions.ToDate);
         foreach (var booking in bookings) { db.Upsert(booking); }
     }
 

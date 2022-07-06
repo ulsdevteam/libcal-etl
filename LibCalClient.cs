@@ -106,14 +106,15 @@ class LibCalClient
     }
 
     /// <summary>
-    /// Get the space bookings for today. T
+    /// Get the space bookings for a given date interval.
+    /// The api ignores dates in the past, so the passed in times are clamped to remove past dates
     /// </summary>
     /// <returns></returns>
-    public Task<List<SpaceBooking>> GetSpaceBookings()
+    public Task<List<SpaceBooking>> GetSpaceBookings(DateTime fromDate, DateTime toDate)
     {
-        return Client.Request("/1.1/space/bookings")
-            .SetQueryParam("limit", 500)
-            .GetJsonAsync<List<SpaceBooking>>();
+        if (fromDate <= DateTime.Today) { fromDate = DateTime.Today; }
+        if (toDate <= DateTime.Today) { toDate = DateTime.Today; }
+        return GetInDateInterval<SpaceBooking>(Client.Request("/1.1/space/bookings"), fromDate, toDate);
     }
 
     /// <summary>
