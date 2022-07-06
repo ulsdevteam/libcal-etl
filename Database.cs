@@ -130,6 +130,13 @@ class Database : DbContext
             bookings.ToTable("LIBCAL_SPACE_BOOKINGS");
             bookings.Property(b => b.Id).ValueGeneratedNever();
         });
+
+        builder.Entity<ArchivedSpaceBooking>(archivedBookings =>
+        {
+            archivedBookings.ToTable("LIBCAL_ARCHIVED_SPACE_BOOKINGS");
+            archivedBookings.HasKey(a => a.Id);
+            archivedBookings.Property(a => a.Id).ValueGeneratedOnAdd();
+        });
     }
 
     protected override void OnConfiguring(DbContextOptionsBuilder options)

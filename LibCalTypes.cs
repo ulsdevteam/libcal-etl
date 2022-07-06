@@ -471,3 +471,34 @@ public class SpaceBooking
     [JsonProperty("cancelled", NullValueHandling = NullValueHandling.Ignore)]
     public DateTimeOffset? Cancelled { get; set; }
 }
+
+public class ArchivedSpaceBooking
+{
+    public long Id { get; set; }
+    public string BookingId { get; set; }
+    public string SpaceId { get; set; }
+    public string SpaceName { get; set; }
+    public string Location { get; set; }
+    public string Zone { get; set; }
+    public string Category { get; set; }
+    public string FirstName { get; set; }
+    public string LastName { get; set; }
+    public string Email { get; set; }
+    public string PublicNickname { get; set; }
+    public string Account { get; set; }
+    public DateTime? FromDate { get; set; }
+    public DateTime? ToDate { get; set; }
+    public DateTime? CreatedDate { get; set; }
+    public string EventId { get; set; }
+    public string EventTitle { get; set; }
+    public DateTime? EventStart { get; set; }
+    public DateTime? EventEnd { get; set; }
+    public string Status { get; set; }
+    public string CancelledByUser { get; set; }
+    public DateTime? CancelledAt { get; set; }
+    public string ShowedUp { get; set; }
+    public DateTime? CheckedInDate { get; set; }
+    public DateTime? CheckedOutDate { get; set; }
+    public string Cost { get; set; }
+    public string BookingFormAnswers { get; set; }
+}
