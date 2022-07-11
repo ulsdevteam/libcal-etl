@@ -20,8 +20,8 @@ var parser = new Parser(settings =>
     settings.CaseInsensitiveEnumValues = true;
     settings.HelpWriter = Console.Error;
 });
-await parser.ParseArguments<UpdateOptions, BatchOptions>(args)
-    .MapResult<UpdateOptions, BatchOptions, Task>(RunUpdate, RunBatch, _ => Task.CompletedTask);
+await parser.ParseArguments<UpdateOptions, BatchOptions, PrintSchemaOptions>(args)
+    .MapResult<UpdateOptions, BatchOptions, PrintSchemaOptions, Task>(RunUpdate, RunBatch, PrintSchema, _ => Task.CompletedTask);
 
 async Task RunUpdate(UpdateOptions updateOptions)
 {
@@ -207,4 +207,10 @@ async Task RunBatch(BatchOptions batchOptions)
     }
 
     await db.SaveChangesAsync();
+}
+
+async Task PrintSchema(PrintSchemaOptions _)
+{
+    await using var db = new Database(dbOptions);
+    Console.WriteLine(db.Database.GenerateCreateScript());
 }
