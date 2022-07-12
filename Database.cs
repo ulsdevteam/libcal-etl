@@ -1,14 +1,19 @@
-﻿using LibCalTypes;
+﻿using dotenv.net;
+using LibCalTypes;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
+using Microsoft.Extensions.Configuration;
 
 /// <summary>
 /// Defines the SQL table schema and encapsulates the connection to the database.
 /// </summary>
 class Database : DbContext
 {
-    public Database(DbContextOptions options) : base(options)
+    IConfiguration Config { get; }
+    
+    public Database(IConfiguration config)
     {
+        Config = config;
     }
 
     /// <summary>
@@ -67,7 +72,7 @@ class Database : DbContext
                 categories.ToTable("LIBCAL_CATEGORIES");
                 categories.WithOwner().HasForeignKey(c => c.EventId);
                 categories.HasKey(c => new { c.EventId, c.Id });
-                // I think ValueGeneratedNever isn't needed here since its a composite key
+                categories.Property(c => c.Id).ValueGeneratedNever();
             });
             events.OwnsMany(e => e.Registrants, registrants =>
             {
@@ -84,10 +89,10 @@ class Database : DbContext
                 futureDates.Property<long>(originalEventId);
                 futureDates.WithOwner().HasForeignKey(originalEventId);
                 futureDates.HasKey(originalEventId, nameof(FutureDate.FutureEventId));
+                futureDates.Property(fd => fd.FutureEventId).ValueGeneratedNever();
             });
 
-            // Not sure what these are since they were null in the samples I pulled, I assume GeoJSON?
-            // TODO: Can I safely ignore this? What types should be used if not?
+            // Unused
             events.Ignore(e => e.Geolocation);
         });
 
@@ -134,6 +139,8 @@ class Database : DbContext
         builder.Entity<ArchivedSpaceBooking>(archivedBookings =>
         {
             archivedBookings.ToTable("LIBCAL_ARCHIVED_SPACE_BOOKINGS");
+            // I would like to use .HasNoKey(), but in EF no-key tables are read-only without custom sql
+            // So this configures it to use an auto-incrementing id
             archivedBookings.HasKey(a => a.Id);
             archivedBookings.Property(a => a.Id).ValueGeneratedOnAdd();
         });
@@ -141,6 +148,18 @@ class Database : DbContext
 
     protected override void OnConfiguring(DbContextOptionsBuilder options)
     {
+        var connectionString = Config["CONNECTION_STRING"];
+        if (connectionString.StartsWith("Filename="))
+        {
+            options.UseSqlite(connectionString);
+        }
+        else
+        {
+            options.UseOracle(connectionString, oracleOptions =>
+            {
+                oracleOptions.MigrationsHistoryTable("LIBCAL_EF_MIGRATIONS");
+            });
+        }
         options.UseUpperSnakeCaseNamingConvention();
     }
 
@@ -149,9 +168,9 @@ class Database : DbContext
         // Called to configure the connection when using the cli migration tools
         public Database CreateDbContext(string[] args)
         {
-            var options = new DbContextOptionsBuilder<Database>();
-            options.UseSqlite("Filename=test.db");
-            return new Database(options.Options);
+            DotEnv.Load();
+            var config = new ConfigurationBuilder().AddEnvironmentVariables().Build();
+            return new Database(config);
         }
     }
 }

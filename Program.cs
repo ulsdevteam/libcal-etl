@@ -11,9 +11,6 @@ using Microsoft.Extensions.FileSystemGlobbing;
 
 DotEnv.Load();
 var config = new ConfigurationBuilder().AddEnvironmentVariables().Build();
-var dbOptions = new DbContextOptionsBuilder()
-    .UseSqlite("Filename=test.db")
-    .Options;
 var parser = new Parser(settings =>
 {
     settings.AutoHelp = true;
@@ -27,7 +24,7 @@ async Task RunUpdate(UpdateOptions updateOptions)
 {
     var libCalClient = new LibCalClient();
     await libCalClient.Authorize(config["LIBCAL_CLIENT_ID"], config["LIBCAL_CLIENT_SECRET"]);
-    await using var db = new Database(dbOptions);
+    await using var db = new Database(config);
 
     if (updateOptions.Sources.HasFlag(DataSources.Events))
     {
@@ -55,6 +52,8 @@ async Task RunUpdate(UpdateOptions updateOptions)
     if (updateOptions.Sources.HasFlag(DataSources.Appointments))
     {
         var bookings = await libCalClient.GetAppointmentBookings(updateOptions.FromDate, updateOptions.ToDate);
+        // HashSet.Add returns true only if the element was not already in the set,
+        // so these are used to filter out ids we already saw on this run
         var questionsSeen = new HashSet<long>();
         var usersSeen = new HashSet<long>();
         foreach (var booking in bookings)
@@ -63,7 +62,6 @@ async Task RunUpdate(UpdateOptions updateOptions)
             foreach (var answer in booking.Answers)
             {
                 answer.BookingId = booking.Id;
-                // HashSet.Add returns true only if the element was not already in the set, so this filters out question ids we already saw
                 if (questionsSeen.Add(answer.QuestionId)) { newQuestionIds.Add(answer.QuestionId); }
             }
 
@@ -94,7 +92,7 @@ async Task RunUpdate(UpdateOptions updateOptions)
                     var response = await exception.GetResponseStringAsync();
                     if (response == "No user/data found. Ensure user has MyScheduler enabled.")
                     {
-                        // TODO: is it ok to just skip these?
+                        // just skip these for now
                     }
                     else { throw; }
                 }
@@ -113,7 +111,7 @@ async Task RunUpdate(UpdateOptions updateOptions)
 
 async Task RunBatch(BatchOptions batchOptions)
 {
-    await using var db = new Database(dbOptions);
+    await using var db = new Database(config);
     // This is used to expand out glob/wildcard patterns in the input
     var fileMatcher = new Matcher();
     fileMatcher.AddIncludePatterns(batchOptions.Files);
@@ -151,7 +149,7 @@ async Task RunBatch(BatchOptions batchOptions)
                         Account = csv.GetField("Account"),
                         PublicNickname = csv.GetField("Booking Nickname"),
                         FromDate = fromDate,
-                        ToDate = duration is null ? null : fromDate?.AddMinutes(int.Parse(duration)),
+                        ToDate = string.IsNullOrEmpty(duration) ? null : fromDate?.AddMinutes(int.Parse(duration)),
                         CreatedDate = ConstructDate("Booking Created"),
                         Status = csv.GetField("Status"),
                         ShowedUp = csv.GetField("User Showed Up?"),
@@ -211,6 +209,6 @@ async Task RunBatch(BatchOptions batchOptions)
 
 async Task PrintSchema(PrintSchemaOptions _)
 {
-    await using var db = new Database(dbOptions);
+    await using var db = new Database(config);
     Console.WriteLine(db.Database.GenerateCreateScript());
 }
