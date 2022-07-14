@@ -133,11 +133,10 @@ class LibCalClient
         DateTime toDate, Func<TResponse, IEnumerable<TResult>> mapFunc, int periodLengthInDays = 30)
     {
         var results = new List<TResult>();
-        Console.WriteLine($"Interval from {fromDate:d} to {toDate:d}");
         for (var currentDate = fromDate; currentDate < toDate; currentDate = currentDate.AddDays(periodLengthInDays))
         {
+            // Period length -1 because otherwise it would double-count some days
             var days = Math.Min((toDate - currentDate).Days, periodLengthInDays - 1);
-            Console.WriteLine($"Step: {currentDate:d}, {days} days");
             var response = await request
                 .SetQueryParams(new
                 {

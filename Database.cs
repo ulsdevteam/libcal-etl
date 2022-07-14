@@ -9,6 +9,7 @@ using Microsoft.Extensions.Configuration;
 /// </summary>
 class Database : DbContext
 {
+    const int OracleStringMaxLength = 32672;
     IConfiguration Config { get; }
     
     public Database(IConfiguration config)
@@ -91,6 +92,10 @@ class Database : DbContext
                 futureDates.HasKey(originalEventId, nameof(FutureDate.FutureEventId));
                 futureDates.Property(fd => fd.FutureEventId).ValueGeneratedNever();
             });
+            
+            // Descriptions are html (I think) and so could be longer than the default 2000
+            events.Property(e => e.Description).HasMaxLength(OracleStringMaxLength);
+            events.Property(e => e.MoreInfo).HasMaxLength(OracleStringMaxLength);
 
             // Unused
             events.Ignore(e => e.Geolocation);
@@ -108,6 +113,7 @@ class Database : DbContext
                 answers.WithOwner().HasForeignKey(q => q.BookingId);
                 answers.HasKey(q => new { q.BookingId, q.QuestionId });
                 answers.HasOne<AppointmentQuestion>().WithMany().HasForeignKey(q => q.QuestionId);
+                answers.Property(q => q.Answer).HasMaxLength(OracleStringMaxLength);
             });
         });
 
@@ -116,6 +122,7 @@ class Database : DbContext
             users.ToTable("LIBCAL_APPOINTMENT_USERS");
             users.HasKey(u => u.UserId);
             users.Property(u => u.UserId).ValueGeneratedNever();
+            users.Property(u => u.Description).HasMaxLength(OracleStringMaxLength);
         });
 
         builder.Entity<AppointmentQuestion>(questions =>
