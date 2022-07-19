@@ -44,6 +44,12 @@ async Task RunUpdate(UpdateOptions updateOptions)
                 @event.Registrants = registrations[@event.Id];
                 foreach (var category in @event.Category) { category.EventId = @event.Id; }
 
+                if (db.IsOracle)
+                {
+                    // just truncate strings longer than 2000 for oracle
+                    @event.Description = Truncate(@event.Description, 2000);
+                    @event.MoreInfo = Truncate(@event.MoreInfo, 2000);
+                }
                 db.Upsert(@event);
             }
         }
@@ -62,6 +68,10 @@ async Task RunUpdate(UpdateOptions updateOptions)
             foreach (var answer in booking.Answers)
             {
                 answer.BookingId = booking.Id;
+                if (db.IsOracle)
+                {
+                    answer.Answer = Truncate(answer.Answer, 2000);
+                }
                 if (questionsSeen.Add(answer.QuestionId)) { newQuestionIds.Add(answer.QuestionId); }
             }
 
@@ -85,6 +95,10 @@ async Task RunUpdate(UpdateOptions updateOptions)
                 try
                 {
                     var user = await libCalClient.GetAppointmentUser(booking.UserId);
+                    if (db.IsOracle)
+                    {
+                        user.Description = Truncate(user.Description, 2000);
+                    }
                     db.Upsert(user);
                 }
                 catch (FlurlHttpException exception)
@@ -211,4 +225,9 @@ async Task PrintSchema(PrintSchemaOptions _)
 {
     await using var db = new Database(config);
     Console.WriteLine(db.Database.GenerateCreateScript());
+}
+
+string Truncate(string str, int len)
+{
+    return str.Length > len ? str[..len] : str;
 }

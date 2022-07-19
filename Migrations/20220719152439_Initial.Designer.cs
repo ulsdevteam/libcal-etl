@@ -11,7 +11,7 @@ using Oracle.EntityFrameworkCore.Metadata;
 namespace libcal_etl.Migrations
 {
     [DbContext(typeof(Database))]
-    [Migration("20220712163857_Initial")]
+    [Migration("20220719152439_Initial")]
     partial class Initial
     {
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -118,8 +118,7 @@ namespace libcal_etl.Migrations
                         .HasColumnName("USER_ID");
 
                     b.Property<string>("Description")
-                        .HasMaxLength(32672)
-                        .HasColumnType("NCLOB")
+                        .HasColumnType("NVARCHAR2(2000)")
                         .HasColumnName("DESCRIPTION");
 
                     b.Property<string>("Email")
@@ -282,8 +281,7 @@ namespace libcal_etl.Migrations
                         .HasColumnName("COLOR");
 
                     b.Property<string>("Description")
-                        .HasMaxLength(32672)
-                        .HasColumnType("NCLOB")
+                        .HasColumnType("NVARCHAR2(2000)")
                         .HasColumnName("DESCRIPTION");
 
                     b.Property<DateTimeOffset>("End")
@@ -303,8 +301,7 @@ namespace libcal_etl.Migrations
                         .HasColumnName("HAS_REGISTRATION_OPENED");
 
                     b.Property<string>("MoreInfo")
-                        .HasMaxLength(32672)
-                        .HasColumnType("NCLOB")
+                        .HasColumnType("NVARCHAR2(2000)")
                         .HasColumnName("MORE_INFO");
 
                     b.Property<string>("OnlineHostUrl")
@@ -486,8 +483,7 @@ namespace libcal_etl.Migrations
                                 .HasColumnName("QUESTION_ID");
 
                             b1.Property<string>("Answer")
-                                .HasMaxLength(32672)
-                                .HasColumnType("NCLOB")
+                                .HasColumnType("NVARCHAR2(2000)")
                                 .HasColumnName("ANSWER");
 
                             b1.HasKey("BookingId", "QuestionId")

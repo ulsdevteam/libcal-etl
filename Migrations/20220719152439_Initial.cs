@@ -57,7 +57,7 @@ namespace libcal_etl.Migrations
                     NICKNAME = table.Column<string>(type: "NVARCHAR2(2000)", nullable: true),
                     EMAIL = table.Column<string>(type: "NVARCHAR2(2000)", nullable: true),
                     URL = table.Column<string>(type: "NVARCHAR2(2000)", nullable: true),
-                    DESCRIPTION = table.Column<string>(type: "NCLOB", maxLength: 32672, nullable: true)
+                    DESCRIPTION = table.Column<string>(type: "NVARCHAR2(2000)", nullable: true)
                 },
                 constraints: table =>
                 {
@@ -111,7 +111,7 @@ namespace libcal_etl.Migrations
                     ALL_DAY = table.Column<bool>(type: "NUMBER(1)", nullable: false),
                     START = table.Column<DateTimeOffset>(type: "TIMESTAMP(7) WITH TIME ZONE", nullable: false),
                     END = table.Column<DateTimeOffset>(type: "TIMESTAMP(7) WITH TIME ZONE", nullable: false),
-                    DESCRIPTION = table.Column<string>(type: "NCLOB", maxLength: 32672, nullable: true),
+                    DESCRIPTION = table.Column<string>(type: "NVARCHAR2(2000)", nullable: true),
                     URL_PUBLIC = table.Column<string>(type: "NVARCHAR2(2000)", nullable: true),
                     URL_ADMIN = table.Column<string>(type: "NVARCHAR2(2000)", nullable: true),
                     LOCATION_ID = table.Column<long>(type: "NUMBER(19)", nullable: true),
@@ -138,7 +138,7 @@ namespace libcal_etl.Migrations
                     WAIT_LIST = table.Column<bool>(type: "NUMBER(1)", nullable: false),
                     COLOR = table.Column<string>(type: "NVARCHAR2(2000)", nullable: true),
                     FEATURED_IMAGE = table.Column<string>(type: "NVARCHAR2(2000)", nullable: true),
-                    MORE_INFO = table.Column<string>(type: "NCLOB", maxLength: 32672, nullable: true),
+                    MORE_INFO = table.Column<string>(type: "NVARCHAR2(2000)", nullable: true),
                     SETUP_TIME = table.Column<long>(type: "NUMBER(19)", nullable: false),
                     TEARDOWN_TIME = table.Column<long>(type: "NUMBER(19)", nullable: false),
                     ONLINE_USER_ID = table.Column<long>(type: "NUMBER(19)", nullable: false),
@@ -188,7 +188,7 @@ namespace libcal_etl.Migrations
                 {
                     BOOKING_ID = table.Column<long>(type: "NUMBER(19)", nullable: false),
                     QUESTION_ID = table.Column<long>(type: "NUMBER(19)", nullable: false),
-                    ANSWER = table.Column<string>(type: "NCLOB", maxLength: 32672, nullable: true)
+                    ANSWER = table.Column<string>(type: "NVARCHAR2(2000)", nullable: true)
                 },
                 constraints: table =>
                 {
