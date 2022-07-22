@@ -6,10 +6,10 @@ class UpdateOptions
     DateTime? _fromDate;
     DateTime? _toDate;
 
-    [Option('f', "from", Required = false, HelpText = "From date, defaults to one month before today", SetName = "fd")]
+    [Option('f', "from", Required = false, HelpText = "From date, defaults to the first day of the previous July")]
     public DateTime FromDate
     {
-        get => FiscalYear ? StartOfFiscalYear : _fromDate ?? DateTime.Today.AddMonths(-1);
+        get => _fromDate ?? StartOfFiscalYear;
         set => _fromDate = value;
     }
 
@@ -20,9 +20,6 @@ class UpdateOptions
         set => _toDate = value;
     }
     
-    // Mutually exclusive with -f
-    [Option(longName: "fiscal-year", Required = false, HelpText = "Pull data from the first day of the previous July", SetName = "fy")]
-    public bool FiscalYear { get; set; }
 
     [Value(0, Required = true, MetaName = "sources", HelpText =
             "Which data sources to update, separated by commas. " +
