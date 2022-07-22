@@ -26,7 +26,9 @@ async Task RunUpdate(UpdateOptions updateOptions)
     await libCalClient.Authorize(config["LIBCAL_CLIENT_ID"], config["LIBCAL_CLIENT_SECRET"]);
     await using var db = new Database(config);
 
-    if (updateOptions.Sources.HasFlag(DataSources.Events))
+    bool Updating(DataSources source) => updateOptions.Sources.HasFlag(source);
+
+    if (Updating(DataSources.Events))
     {
         var calendarIds = await libCalClient.GetCalendarIds();
         foreach (var calendarId in calendarIds)
@@ -41,6 +43,7 @@ async Task RunUpdate(UpdateOptions updateOptions)
             // @ sign because event is a reserved keyword
             foreach (var @event in events)
             {
+                // This line would throw if the above call didn't return an entry for one of the ids
                 @event.Registrants = registrations[@event.Id];
                 foreach (var category in @event.Category) { category.EventId = @event.Id; }
 
@@ -55,7 +58,7 @@ async Task RunUpdate(UpdateOptions updateOptions)
         }
     }
 
-    if (updateOptions.Sources.HasFlag(DataSources.Appointments))
+    if (Updating(DataSources.Appointments))
     {
         var bookings = await libCalClient.GetAppointmentBookings(updateOptions.FromDate, updateOptions.ToDate);
         // HashSet.Add returns true only if the element was not already in the set,
@@ -114,7 +117,7 @@ async Task RunUpdate(UpdateOptions updateOptions)
         }
     }
 
-    if (updateOptions.Sources.HasFlag(DataSources.Spaces))
+    if (Updating(DataSources.Spaces))
     {
         var bookings = await libCalClient.GetSpaceBookings(updateOptions.FromDate, updateOptions.ToDate);
         foreach (var booking in bookings) { db.Upsert(booking); }
