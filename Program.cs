@@ -1,4 +1,6 @@
 ﻿using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
 using CommandLine;
 using CsvHelper;
 using CsvHelper.Configuration;
@@ -18,7 +20,7 @@ var parser = new Parser(settings =>
     settings.HelpWriter = Console.Error;
 });
 await parser.ParseArguments<UpdateOptions, BatchOptions, PrintSchemaOptions>(args)
-    .MapResult<UpdateOptions, BatchOptions, PrintSchemaOptions, Task>(RunUpdate, RunBatch, PrintSchema, _ => Task.CompletedTask);
+    .MapResult<UpdateOptions, BatchOptions, PrintSchemaOptions, Task>(RunUpdate, RunBatch, PrintSchema, NoOpOnError);
 
 async Task RunUpdate(UpdateOptions updateOptions)
 {
@@ -45,8 +47,8 @@ async Task RunUpdate(UpdateOptions updateOptions)
             {
                 // This line would throw if the above call didn't return an entry for one of the ids
                 @event.Registrants = registrations[@event.Id];
+                foreach (var registrant in @event.Registrants) { registrant.UserHash = Hash(registrant.Email); }
                 foreach (var category in @event.Category) { category.EventId = @event.Id; }
-
                 if (db.IsOracle)
                 {
                     // just truncate strings longer than 2000 for oracle
@@ -67,14 +69,12 @@ async Task RunUpdate(UpdateOptions updateOptions)
         var usersSeen = new HashSet<long>();
         foreach (var booking in bookings)
         {
+            booking.UserHash = Hash(booking.Email);
             var newQuestionIds = new List<long>();
             foreach (var answer in booking.Answers)
             {
                 answer.BookingId = booking.Id;
-                if (db.IsOracle)
-                {
-                    answer.Answer = Truncate(answer.Answer, 2000);
-                }
+                if (db.IsOracle) { answer.Answer = Truncate(answer.Answer, 2000); }
                 if (questionsSeen.Add(answer.QuestionId)) { newQuestionIds.Add(answer.QuestionId); }
             }
 
@@ -98,10 +98,7 @@ async Task RunUpdate(UpdateOptions updateOptions)
                 try
                 {
                     var user = await libCalClient.GetAppointmentUser(booking.UserId);
-                    if (db.IsOracle)
-                    {
-                        user.Description = Truncate(user.Description, 2000);
-                    }
+                    if (db.IsOracle) { user.Description = Truncate(user.Description, 2000); }
                     db.Upsert(user);
                 }
                 catch (FlurlHttpException exception)
@@ -120,7 +117,11 @@ async Task RunUpdate(UpdateOptions updateOptions)
     if (Updating(DataSources.Spaces))
     {
         var bookings = await libCalClient.GetSpaceBookings(updateOptions.FromDate, updateOptions.ToDate);
-        foreach (var booking in bookings) { db.Upsert(booking); }
+        foreach (var booking in bookings)
+        {
+            booking.UserHash = Hash(booking.Account);
+            db.Upsert(booking);
+        }
     }
 
     await db.SaveChangesAsync();
@@ -160,11 +161,12 @@ async Task RunBatch(BatchOptions batchOptions)
                     var duration = csv.GetField("Duration (minutes)");
                     db.Add(new ArchivedSpaceBooking
                     {
-                        FirstName = csv.GetField("First Name"),
-                        LastName = csv.GetField("Last Name"),
-                        Email = csv.GetField("Email"),
-                        Account = csv.GetField("Account"),
-                        PublicNickname = csv.GetField("Booking Nickname"),
+                        // FirstName = csv.GetField("First Name"),
+                        // LastName = csv.GetField("Last Name"),
+                        // Email = csv.GetField("Email"),
+                        // Account = csv.GetField("Account"),
+                        // PublicNickname = csv.GetField("Booking Nickname"),
+                        UserHash = Hash(csv.GetField("Account")),
                         FromDate = fromDate,
                         ToDate = string.IsNullOrEmpty(duration) ? null : fromDate?.AddMinutes(int.Parse(duration)),
                         CreatedDate = ConstructDate("Booking Created"),
@@ -188,11 +190,12 @@ async Task RunBatch(BatchOptions batchOptions)
                     Location = csv.GetField("Location"),
                     Zone = csv.GetField("Zone"),
                     Category = csv.GetField("Category"),
-                    FirstName = csv.GetField("First Name"),
-                    LastName = csv.GetField("Last Name"),
-                    Email = csv.GetField("Email"),
-                    PublicNickname = csv.GetField("Public Nickname"),
-                    Account = csv.GetField("Account"),
+                    // FirstName = csv.GetField("First Name"),
+                    // LastName = csv.GetField("Last Name"),
+                    // Email = csv.GetField("Email"),
+                    // PublicNickname = csv.GetField("Public Nickname"),
+                    // Account = csv.GetField("Account"),
+                    UserHash = Hash(csv.GetField("Account")),
                     FromDate = ConstructDate("From Date", "From Time"),
                     ToDate = ConstructDate("To Date", "To Time"),
                     CreatedDate = ConstructDate("Created Date", "Created Time"),
@@ -211,7 +214,7 @@ async Task RunBatch(BatchOptions batchOptions)
                 });
             }
         }
-        
+
         DateTime? ConstructDate(string datePart, string timePart = null)
         {
             var date = datePart is null ? null : csv.GetField(datePart);
@@ -230,7 +233,9 @@ async Task PrintSchema(PrintSchemaOptions _)
     Console.WriteLine(db.Database.GenerateCreateScript());
 }
 
-string Truncate(string str, int len)
-{
-    return str.Length > len ? str[..len] : str;
-}
+Task NoOpOnError(IEnumerable<Error> _) => Task.CompletedTask;
+
+string Truncate(string str, int len) => str.Length > len ? str[..len] : str;
+
+string Hash(string str) => 
+    Convert.ToHexString(MD5.HashData(Encoding.UTF8.GetBytes(str.ToLowerInvariant()))).ToLowerInvariant();

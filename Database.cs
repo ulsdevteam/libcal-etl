@@ -9,13 +9,13 @@ using Microsoft.Extensions.Configuration;
 /// </summary>
 class Database : DbContext
 {
-    IConfiguration Config { get; }
-    public bool IsOracle { get; private set; }
-
     public Database(IConfiguration config)
     {
         Config = config;
     }
+
+    IConfiguration Config { get; }
+    public bool IsOracle { get; private set; }
 
     /// <summary>
     /// Add an entity to the context, setting its state to Added if it does not already exist, or Modified if it does.
@@ -25,10 +25,7 @@ class Database : DbContext
     public void Upsert<T>(T item) where T : class
     {
         var entry = Entry(item);
-        if (entry.GetDatabaseValues() is null)
-        {
-            Add(item);
-        }
+        if (entry.GetDatabaseValues() is null) { Add(item); }
         else
         {
             Update(item);
@@ -81,6 +78,12 @@ class Database : DbContext
                 registrants.WithOwner();
                 registrants.HasKey(r => r.BookingId);
                 registrants.Property(r => r.BookingId).ValueGeneratedNever();
+
+                // Ignore fields that contain personal info of students
+                registrants.Ignore(r => r.Email);
+                registrants.Ignore(r => r.Phone);
+                registrants.Ignore(r => r.FirstName);
+                registrants.Ignore(r => r.LastName);
             });
             events.OwnsMany(e => e.FutureDates, futureDates =>
             {
@@ -102,6 +105,11 @@ class Database : DbContext
             bookings.ToTable("LIBCAL_APPOINTMENT_BOOKINGS");
             bookings.HasKey(b => b.Id);
             bookings.Property(b => b.Id).ValueGeneratedNever();
+
+            // Ignore fields that contain personal info of students
+            bookings.Ignore(b => b.Email);
+            bookings.Ignore(b => b.FirstName);
+            bookings.Ignore(b => b.LastName);
 
             bookings.OwnsMany(b => b.Answers, answers =>
             {
@@ -135,6 +143,13 @@ class Database : DbContext
         {
             bookings.ToTable("LIBCAL_SPACE_BOOKINGS");
             bookings.Property(b => b.Id).ValueGeneratedNever();
+
+            // Ignore fields that contain personal info of students
+            bookings.Ignore(b => b.Account);
+            bookings.Ignore(b => b.Email);
+            bookings.Ignore(b => b.Nickname);
+            bookings.Ignore(b => b.FirstName);
+            bookings.Ignore(b => b.LastName);
         });
 
         builder.Entity<ArchivedSpaceBooking>(archivedBookings =>
@@ -150,18 +165,14 @@ class Database : DbContext
     protected override void OnConfiguring(DbContextOptionsBuilder options)
     {
         var connectionString = Config["CONNECTION_STRING"];
-        if (connectionString.StartsWith("Filename="))
-        {
-            options.UseSqlite(connectionString);
-        }
+        if (connectionString.StartsWith("Filename=")) { options.UseSqlite(connectionString); }
         else
         {
-            options.UseOracle(connectionString, oracleOptions =>
-            {
-                oracleOptions.MigrationsHistoryTable("LIBCAL_EF_MIGRATIONS");
-            });
+            options.UseOracle(connectionString,
+                oracleOptions => { oracleOptions.MigrationsHistoryTable("LIBCAL_EF_MIGRATIONS"); });
             IsOracle = true;
         }
+
         options.UseUpperSnakeCaseNamingConvention();
     }
 

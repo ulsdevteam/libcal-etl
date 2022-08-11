@@ -213,6 +213,9 @@ public class RegistrationsResponse
 
 public class Registrant
 {
+    [JsonIgnore]
+    public string UserHash { get; set; }
+
     [JsonProperty("booking_id")]
     public long BookingId { get; set; }
 
@@ -243,6 +246,9 @@ public class Registrant
 
 public class AppointmentBooking
 {
+    [JsonIgnore]
+    public string UserHash { get; set; }
+
     [JsonProperty("id")]
     public long Id { get; set; }
 
@@ -341,10 +347,7 @@ class AnswerConverter : JsonConverter<List<QuestionAnswer>>
         {
             serializer.Serialize(writer, value.ToDictionary(q => $"q{q.QuestionId}", q => q.Answer));
         }
-        else
-        {
-            serializer.Serialize(writer, Array.Empty<object>());
-        }
+        else { serializer.Serialize(writer, Array.Empty<object>()); }
     }
 }
 
@@ -417,6 +420,9 @@ class OptionConverter : JsonConverter<List<QuestionOption>>
 
 public class SpaceBooking
 {
+    [JsonIgnore]
+    public string UserHash { get; set; }
+
     [JsonProperty("bookId")]
     public string BookId { get; set; }
 
@@ -481,11 +487,7 @@ public class ArchivedSpaceBooking
     public string Location { get; set; }
     public string Zone { get; set; }
     public string Category { get; set; }
-    public string FirstName { get; set; }
-    public string LastName { get; set; }
-    public string Email { get; set; }
-    public string PublicNickname { get; set; }
-    public string Account { get; set; }
+    public string UserHash { get; set; }
     public DateTime? FromDate { get; set; }
     public DateTime? ToDate { get; set; }
     public DateTime? CreatedDate { get; set; }
