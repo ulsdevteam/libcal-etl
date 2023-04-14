@@ -120,7 +120,7 @@ async Task RunUpdate(UpdateOptions updateOptions)
         foreach (var booking in bookings)
         {
             booking.UserHash = Hash(booking.Account);
-            db.Upsert(booking);
+            db.Upsert2(booking);
         }
     }
 

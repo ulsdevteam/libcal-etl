@@ -47,6 +47,21 @@ class Database : DbContext
         }
     }
 
+    /// <summary>
+    /// Add an entity to the context, setting its state to Added if it does not already exist, or Modified if it does.
+    /// This method might not set the Modified state of child entities correctly.
+    /// </summary>
+    /// <param name="item">The new or updated entity</param>
+    /// <typeparam name="T">An entity type that is managed by this context</typeparam>
+    public void Upsert2<T>(T item) where T: class {
+        var id = typeof(T).GetProperty("Id").GetValue(item);
+        if (Set<T>().Find(id) is T existing) {
+            Entry(existing).CurrentValues.SetValues(item);
+        } else {
+            Add(item);
+        }
+    }
+
     // Called by EF to configure the schema
     protected override void OnModelCreating(ModelBuilder builder)
     {
