@@ -111,11 +111,63 @@ class LibCalClient
     /// <returns></returns>
     public Task<List<SpaceBooking>> GetSpaceBookings(DateTime fromDate, DateTime toDate)
     {
-        return GetInDateInterval<SpaceBooking>(Client.Request("/1.1/space/bookings"), fromDate, toDate);
+        return GetInDateIntervalPaged<SpaceBooking>(Client.Request("/1.1/space/bookings"), fromDate, toDate);
+    }
+
+        /// <summary>
+    /// Get all data between two given dates by splitting them into periods.
+    /// Each individual call has a limit of 500, so if you are hitting that limit, try reducing the period.
+    /// </summary>
+    /// <param name="request"></param>
+    /// <param name="fromDate"></param>
+    /// <param name="toDate"></param>
+    /// <param name="mapFunc"></param>
+    /// <param name="periodLengthInDays"></param>
+    /// <typeparam name="TResponse"></typeparam>
+    /// <typeparam name="TResult"></typeparam>
+    /// <returns></returns>
+    static async Task<List<TResult>> GetInDateInterval<TResponse, TResult>(IFlurlRequest request, DateTime fromDate,
+        DateTime toDate, Func<TResponse, IEnumerable<TResult>> mapFunc, int periodLengthInDays = 30)
+    {
+        var results = new List<TResult>();
+        var currentDate = fromDate;
+        do
+        {
+            // Period length -1 because otherwise it would double-count some days
+            var days = Math.Min((toDate - currentDate).Days, periodLengthInDays - 1);
+            var response = await request
+                .SetQueryParams(new
+                {
+                    date = currentDate.ToString("yyyy-M-d"),
+                    days,
+                    limit = 500
+                })
+                .GetJsonAsync<TResponse>();
+            results.AddRange(mapFunc(response));
+            currentDate = currentDate.AddDays(periodLengthInDays);
+        } while (currentDate < toDate);
+
+        return results;
     }
 
     /// <summary>
-    /// Get all data between two given dates.
+    /// Get all data between two given dates by splitting them into periods.
+    /// Each individual call has a limit of 500, so if you are hitting that limit, try reducing the period.
+    /// </summary>
+    /// <param name="request"></param>
+    /// <param name="fromDate"></param>
+    /// <param name="toDate"></param>
+    /// <param name="periodLengthInDays"></param>
+    /// <typeparam name="TResponse"></typeparam>
+    /// <returns></returns>
+    static Task<List<TResponse>> GetInDateInterval<TResponse>(IFlurlRequest request, DateTime fromDate, DateTime toDate,
+        int periodLengthInDays = 30)
+    {
+        return GetInDateInterval<List<TResponse>, TResponse>(request, fromDate, toDate, x => x, periodLengthInDays);
+    }
+
+    /// <summary>
+    /// Get all data between two given dates using pagination.
     /// </summary>
     /// <param name="request"></param>
     /// <param name="fromDate"></param>
@@ -124,7 +176,7 @@ class LibCalClient
     /// <typeparam name="TResponse"></typeparam>
     /// <typeparam name="TResult"></typeparam>
     /// <returns></returns>
-    static async Task<List<TResult>> GetInDateInterval<TResponse, TResult>(IFlurlRequest request, DateTime fromDate,
+    static async Task<List<TResult>> GetInDateIntervalPaged<TResponse, TResult>(IFlurlRequest request, DateTime fromDate,
         DateTime toDate, Func<TResponse, IEnumerable<TResult>> mapFunc)
     {
         var results = new List<TResult>();
@@ -150,15 +202,15 @@ class LibCalClient
     }
 
     /// <summary>
-    /// Get all data between two given dates.
+    /// Get all data between two given dates using pagination.
     /// </summary>
     /// <param name="request"></param>
     /// <param name="fromDate"></param>
     /// <param name="toDate"></param>
     /// <typeparam name="TResponse"></typeparam>
     /// <returns></returns>
-    static Task<List<TResponse>> GetInDateInterval<TResponse>(IFlurlRequest request, DateTime fromDate, DateTime toDate)
+    static Task<List<TResponse>> GetInDateIntervalPaged<TResponse>(IFlurlRequest request, DateTime fromDate, DateTime toDate)
     {
-        return GetInDateInterval<List<TResponse>, TResponse>(request, fromDate, toDate, x => x);
+        return GetInDateIntervalPaged<List<TResponse>, TResponse>(request, fromDate, toDate, x => x);
     }
 }
