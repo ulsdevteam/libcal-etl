@@ -115,63 +115,50 @@ class LibCalClient
     }
 
     /// <summary>
-    /// Get all data between two given dates by splitting them into periods.
-    /// Each individual call has a limit of 500, so if you are hitting that limit, try reducing the period.
+    /// Get all data between two given dates.
     /// </summary>
     /// <param name="request"></param>
     /// <param name="fromDate"></param>
     /// <param name="toDate"></param>
     /// <param name="mapFunc"></param>
-    /// <param name="periodLengthInDays"></param>
     /// <typeparam name="TResponse"></typeparam>
     /// <typeparam name="TResult"></typeparam>
     /// <returns></returns>
     static async Task<List<TResult>> GetInDateInterval<TResponse, TResult>(IFlurlRequest request, DateTime fromDate,
-        DateTime toDate, Func<TResponse, IEnumerable<TResult>> mapFunc, int periodLengthInDays = 30)
+        DateTime toDate, Func<TResponse, IEnumerable<TResult>> mapFunc)
     {
-        if (fromDate.Date == toDate.Date) {
+        var results = new List<TResult>();
+        var page = 1;
+        while (true) {
             var response = await request
                 .SetQueryParams(new
                 {
                     date = fromDate.ToString("yyyy-M-d"),
+                    days = (toDate - fromDate).Days,
+                    page,
                     limit = 500
                 })
                 .GetJsonAsync<TResponse>();
-            return mapFunc(response).ToList();
-        }
-
-        var results = new List<TResult>();
-        for (var currentDate = fromDate; currentDate < toDate; currentDate = currentDate.AddDays(periodLengthInDays))
-        {
-            // Period length -1 because otherwise it would double-count some days
-            var days = Math.Min((toDate - currentDate).Days, periodLengthInDays - 1);
-            var response = await request
-                .SetQueryParams(new
-                {
-                    date = currentDate.ToString("yyyy-M-d"),
-                    days,
-                    limit = 500
-                })
-                .GetJsonAsync<TResponse>();
+            var resultCount = results.Count;
             results.AddRange(mapFunc(response));
-        }
-
-        return results;
+            if (resultCount == results.Count) {
+                // no new results were returned, i.e. no more pages.
+                return results;
+            }
+            page++;
+        }  
     }
 
     /// <summary>
-    /// Get all data between two given dates by splitting them into periods.
-    /// Each individual call has a limit of 500, so if you are hitting that limit, try reducing the period.
+    /// Get all data between two given dates.
     /// </summary>
     /// <param name="request"></param>
     /// <param name="fromDate"></param>
     /// <param name="toDate"></param>
-    /// <param name="periodLengthInDays"></param>
     /// <typeparam name="TResponse"></typeparam>
     /// <returns></returns>
-    static Task<List<TResponse>> GetInDateInterval<TResponse>(IFlurlRequest request, DateTime fromDate, DateTime toDate,
-        int periodLengthInDays = 30)
+    static Task<List<TResponse>> GetInDateInterval<TResponse>(IFlurlRequest request, DateTime fromDate, DateTime toDate)
     {
-        return GetInDateInterval<List<TResponse>, TResponse>(request, fromDate, toDate, x => x, periodLengthInDays);
+        return GetInDateInterval<List<TResponse>, TResponse>(request, fromDate, toDate, x => x);
     }
 }
