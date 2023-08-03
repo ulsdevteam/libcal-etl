@@ -24,107 +24,116 @@ await parser.ParseArguments<UpdateOptions, BatchOptions, PrintSchemaOptions>(arg
 
 async Task RunUpdate(UpdateOptions updateOptions)
 {
-    var libCalClient = new LibCalClient();
-    await libCalClient.Authorize(config["LIBCAL_CLIENT_ID"], config["LIBCAL_CLIENT_SECRET"]);
-    await using var db = new Database(config);
-
-    bool Updating(DataSources source) => updateOptions.Sources.HasFlag(source);
-
-    if (Updating(DataSources.Events))
+    try
     {
-        var calendarIds = await libCalClient.GetCalendarIds();
-        foreach (var calendarId in calendarIds)
+        var libCalClient = new LibCalClient();
+        await libCalClient.Authorize(config["LIBCAL_CLIENT_ID"], config["LIBCAL_CLIENT_SECRET"]);
+        await using var db = new Database(config);
+
+        bool Updating(DataSources source) => updateOptions.Sources.HasFlag(source);
+
+        if (Updating(DataSources.Events))
         {
-            var events = await libCalClient.GetEvents(calendarId, updateOptions.FromDate, updateOptions.ToDate);
-            if (!events.Any()) { continue; }
-
-            // Should the number of ids being sent per call be limited? Haven't hit the API max yet
-            var registrations =
-                (await libCalClient.GetRegistrations(events.Select(e => e.Id)))
-                .ToDictionary(r => r.EventId, r => r.Registrants);
-            // @ sign because event is a reserved keyword
-            foreach (var @event in events)
+            var calendarIds = await libCalClient.GetCalendarIds();
+            foreach (var calendarId in calendarIds)
             {
-                // This line would throw if the above call didn't return an entry for one of the ids
-                @event.Registrants = registrations[@event.Id];
-                foreach (var registrant in @event.Registrants) { registrant.UserHash = Hash(registrant.Email); }
-                foreach (var category in @event.Category) { category.EventId = @event.Id; }
-                if (db.IsOracle)
+                var events = await libCalClient.GetEvents(calendarId, updateOptions.FromDate, updateOptions.ToDate);
+                if (!events.Any()) { continue; }
+
+                // Should the number of ids being sent per call be limited? Haven't hit the API max yet
+                var registrations =
+                    (await libCalClient.GetRegistrations(events.Select(e => e.Id)))
+                    .ToDictionary(r => r.EventId, r => r.Registrants);
+                // @ sign because event is a reserved keyword
+                foreach (var @event in events)
                 {
-                    // just truncate strings longer than 2000 for oracle
-                    @event.Description = Truncate(@event.Description, 2000);
-                    @event.MoreInfo = Truncate(@event.MoreInfo, 2000);
-                }
-                db.Upsert(@event);
-            }
-        }
-    }
-
-    if (Updating(DataSources.Appointments))
-    {
-        var bookings = await libCalClient.GetAppointmentBookings(updateOptions.FromDate, updateOptions.ToDate);
-        // HashSet.Add returns true only if the element was not already in the set,
-        // so these are used to filter out ids we already saw on this run
-        var questionsSeen = new HashSet<long>();
-        var usersSeen = new HashSet<long>();
-        foreach (var booking in bookings)
-        {
-            booking.UserHash = Hash(booking.Email);
-            var newQuestionIds = new List<long>();
-            foreach (var answer in booking.Answers)
-            {
-                answer.BookingId = booking.Id;
-                if (db.IsOracle) { answer.Answer = Truncate(answer.Answer, 2000); }
-                if (questionsSeen.Add(answer.QuestionId)) { newQuestionIds.Add(answer.QuestionId); }
-            }
-
-            if (newQuestionIds.Any())
-            {
-                foreach (var question in await libCalClient.GetAppointmentQuestions(newQuestionIds))
-                {
-                    // If question.Options is null, assign an empty list to it
-                    foreach (var option in question.Options ??= new List<QuestionOption>())
+                    // This line would throw if the above call didn't return an entry for one of the ids
+                    @event.Registrants = registrations[@event.Id];
+                    foreach (var registrant in @event.Registrants) { registrant.UserHash = Hash(registrant.Email); }
+                    foreach (var category in @event.Category) { category.EventId = @event.Id; }
+                    if (db.IsOracle)
                     {
-                        option.QuestionId = question.Id;
+                        // just truncate strings longer than 2000 for oracle
+                        @event.Description = Truncate(@event.Description, 2000);
+                        @event.MoreInfo = Truncate(@event.MoreInfo, 2000);
                     }
-
-                    db.Upsert(question);
-                }
-            }
-
-            db.Upsert(booking);
-            if (usersSeen.Add(booking.UserId))
-            {
-                try
-                {
-                    var user = await libCalClient.GetAppointmentUser(booking.UserId);
-                    if (db.IsOracle) { user.Description = Truncate(user.Description, 2000); }
-                    db.Upsert(user);
-                }
-                catch (FlurlHttpException exception)
-                {
-                    var response = await exception.GetResponseStringAsync();
-                    if (response == "No user/data found. Ensure user has MyScheduler enabled.")
-                    {
-                        // just skip these for now
-                    }
-                    else { throw; }
+                    db.Upsert(@event);
                 }
             }
         }
-    }
 
-    if (Updating(DataSources.Spaces))
-    {
-        var bookings = await libCalClient.GetSpaceBookings(updateOptions.FromDate, updateOptions.ToDate);
-        foreach (var booking in bookings)
+        if (Updating(DataSources.Appointments))
         {
-            booking.UserHash = Hash(booking.Account);
-            db.Upsert2(booking);
-        }
-    }
+            var bookings = await libCalClient.GetAppointmentBookings(updateOptions.FromDate, updateOptions.ToDate);
+            // HashSet.Add returns true only if the element was not already in the set,
+            // so these are used to filter out ids we already saw on this run
+            var questionsSeen = new HashSet<long>();
+            var usersSeen = new HashSet<long>();
+            foreach (var booking in bookings)
+            {
+                booking.UserHash = Hash(booking.Email);
+                var newQuestionIds = new List<long>();
+                foreach (var answer in booking.Answers)
+                {
+                    answer.BookingId = booking.Id;
+                    if (db.IsOracle) { answer.Answer = Truncate(answer.Answer, 2000); }
+                    if (questionsSeen.Add(answer.QuestionId)) { newQuestionIds.Add(answer.QuestionId); }
+                }
 
-    await db.SaveChangesAsync();
+                if (newQuestionIds.Any())
+                {
+                    foreach (var question in await libCalClient.GetAppointmentQuestions(newQuestionIds))
+                    {
+                        // If question.Options is null, assign an empty list to it
+                        foreach (var option in question.Options ??= new List<QuestionOption>())
+                        {
+                            option.QuestionId = question.Id;
+                        }
+
+                        db.Upsert(question);
+                    }
+                }
+
+                db.Upsert(booking);
+                if (usersSeen.Add(booking.UserId))
+                {
+                    try
+                    {
+                        var user = await libCalClient.GetAppointmentUser(booking.UserId);
+                        if (db.IsOracle) { user.Description = Truncate(user.Description, 2000); }
+                        db.Upsert(user);
+                    }
+                    catch (FlurlHttpException exception)
+                    {
+                        var response = await exception.GetResponseStringAsync();
+                        if (response == "No user/data found. Ensure user has MyScheduler enabled." ||
+                            response == "no user/data found. ensure user has appointments enabled.")
+                        {
+                            // just skip these for now
+                        }
+                        else { throw; }
+                    }
+                }
+            }
+        }
+
+        if (Updating(DataSources.Spaces))
+        {
+            var bookings = await libCalClient.GetSpaceBookings(updateOptions.FromDate, updateOptions.ToDate);
+            foreach (var booking in bookings)
+            {
+                booking.UserHash = Hash(booking.Account);
+                db.Upsert2(booking);
+            }
+        }
+
+        await db.SaveChangesAsync();
+    }
+    catch (FlurlHttpException exception)
+    {
+        Console.Error.WriteLine(await exception.GetResponseStringAsync());
+        throw;
+    }
 }
 
 async Task RunBatch(BatchOptions batchOptions)
@@ -237,5 +246,5 @@ Task NoOpOnError(IEnumerable<Error> _) => Task.CompletedTask;
 
 string Truncate(string str, int len) => str.Length > len ? str[..len] : str;
 
-string Hash(string str) => 
+string Hash(string str) =>
     Convert.ToHexString(MD5.HashData(Encoding.UTF8.GetBytes(str.ToLowerInvariant()))).ToLowerInvariant();
