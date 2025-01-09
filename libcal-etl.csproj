@@ -6,7 +6,7 @@
         <RootNamespace>libcal_etl</RootNamespace>
         <ImplicitUsings>enable</ImplicitUsings>
         <Company>University of Pittsburgh</Company>
-        <Version>1.1.1</Version>
+        <Version>1.2.0</Version>
     </PropertyGroup>
 
     <ItemGroup>

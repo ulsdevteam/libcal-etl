@@ -15,7 +15,6 @@ class Database : DbContext
     }
 
     IConfiguration Config { get; }
-    public bool IsOracle { get; private set; }
 
     /// <summary>
     /// Add an entity to the context, setting its state to Added if it does not already exist, or Modified if it does.
@@ -185,7 +184,6 @@ class Database : DbContext
         {
             options.UseOracle(connectionString,
                 oracleOptions => { oracleOptions.MigrationsHistoryTable("LIBCAL_EF_MIGRATIONS"); });
-            IsOracle = true;
         }
 
         options.UseUpperSnakeCaseNamingConvention();
