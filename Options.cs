@@ -20,6 +20,8 @@ class UpdateOptions
         set => _toDate = value;
     }
     
+    [Option('l', "lid", Required = false, HelpText = "Limits results to specified location ID")]
+    public string LimitLocations { get; set; }
 
     [Value(0, Required = true, MetaName = "sources", HelpText =
             "Which data sources to update, separated by commas. " +

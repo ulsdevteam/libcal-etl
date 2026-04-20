@@ -109,9 +109,14 @@ class LibCalClient
     /// Get the space bookings for a given date interval.
     /// </summary>
     /// <returns></returns>
-    public Task<List<SpaceBooking>> GetSpaceBookings(DateTime fromDate, DateTime toDate)
+    public Task<List<SpaceBooking>> GetSpaceBookings(DateTime fromDate, DateTime toDate, string locationId)
     {
-        return GetInDateIntervalPaged<SpaceBooking>(Client.Request("/1.1/space/bookings"), fromDate, toDate);
+        var request = Client.Request("/1.1/space/bookings");
+        if (!string.IsNullOrEmpty(locationId))
+        {
+            request.SetQueryParam("lid", locationId);
+        }
+        return GetInDateIntervalPaged<SpaceBooking>(request, fromDate, toDate);
     }
 
         /// <summary>

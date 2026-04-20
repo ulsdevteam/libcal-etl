@@ -116,7 +116,7 @@ async Task RunUpdate(UpdateOptions updateOptions)
 
         if (Updating(DataSources.Spaces))
         {
-            var bookings = await libCalClient.GetSpaceBookings(updateOptions.FromDate, updateOptions.ToDate);
+            var bookings = await libCalClient.GetSpaceBookings(updateOptions.FromDate, updateOptions.ToDate, updateOptions.LimitLocations);
             foreach (var booking in bookings)
             {
                 booking.UserHash = Hash(booking.Account);
