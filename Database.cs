@@ -182,8 +182,8 @@ class Database : DbContext
         if (connectionString.StartsWith("Filename=")) { options.UseSqlite(connectionString); }
         else
         {
-            options.UseOracle(connectionString,
-                oracleOptions => { oracleOptions.MigrationsHistoryTable("LIBCAL_EF_MIGRATIONS"); });
+            options.UseSnowflake(connectionString,
+                snowflakeOptions => { snowflakeOptions.MigrationsHistoryTable("LIBCAL_EF_MIGRATIONS"); });
         }
 
         options.UseUpperSnakeCaseNamingConvention();
