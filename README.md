@@ -1,6 +1,6 @@
 ﻿# LibCal ETL
 
-This console application pulls data from the LibCal API and uploads it to an oracle database.
+This console application pulls data from the LibCal API and uploads it to a Snowflake database.
 
 The console app supports three commands: `update`, `batch`, and `print-schema`.
 
@@ -27,7 +27,7 @@ the `CONNECTION_STRING` environment variable in order to determine the SQL diale
 Will check for a `.env` file to read environment variables from.
 
 The SQL dialect is determined by the format of the connection string. If it starts with `Filename=`, it will assume it
-is a Sqlite database file. Otherwise, it will assume it is a connection string for an Oracle database.
+is a Sqlite database file. Otherwise, it will assume it is a connection string for a Snowflake database.
 
 ## Building
 

@@ -1,12 +1,14 @@
 ﻿using Flurl.Http;
 using LibCalTypes;
 using Newtonsoft.Json.Linq;
+using Flurl.Http.Newtonsoft;
 
 class LibCalClient
 {
     public LibCalClient()
     {
         Client = new FlurlClient("https://pitt.libcal.com");
+        Client.Settings.JsonSerializer = new NewtonsoftJsonSerializer();
     }
 
     IFlurlClient Client { get; }
