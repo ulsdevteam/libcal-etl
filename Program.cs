@@ -47,14 +47,27 @@ async Task RunUpdate(UpdateOptions updateOptions)
                 // @ sign because event is a reserved keyword
                 foreach (var @event in events)
                 {
-                    // This line would throw if the above call didn't return an entry for one of the ids
-                    @event.Registrants = registrations[@event.Id];
-                    foreach (var registrant in @event.Registrants) { registrant.UserHash = Hash(registrant.Email); }
-                    foreach (var category in @event.Category) { category.EventId = @event.Id; }
-                    // just truncate strings longer than 2000 for oracle
-                    @event.Description = Truncate(@event.Description, 2000);
-                    @event.MoreInfo = Truncate(@event.MoreInfo, 2000);
-                    db.Upsert(@event);
+                    try
+                    {
+                        // This line would throw if the above call didn't return an entry for one of the ids;
+                        // that's now caught below and reported per-event instead of aborting the whole run
+                        @event.Registrants = registrations[@event.Id];
+                        foreach (var registrant in @event.Registrants) { registrant.UserHash = Hash(registrant.Email); }
+                        foreach (var category in @event.Category) { category.EventId = @event.Id; }
+                        db.Upsert(@event);
+                        await db.SaveChangesAsync();
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.Error.WriteLine(
+                            $"[Event {@event.Id}] start={@event.Start:O} end={@event.End:O} - failed to save: {ex.Message}");
+                    }
+                    finally
+                    {
+                        // Detach everything staged for this event so a failure (or the save we just made)
+                        // doesn't affect change tracking for the next event
+                        db.ChangeTracker.Clear();
+                    }
                 }
             }
         }
@@ -68,48 +81,68 @@ async Task RunUpdate(UpdateOptions updateOptions)
             var usersSeen = new HashSet<long>();
             foreach (var booking in bookings)
             {
-                booking.UserHash = Hash(booking.Email);
+                // Track ids newly claimed by this booking so they can be released for retry if the save below fails
                 var newQuestionIds = new List<long>();
-                foreach (var answer in booking.Answers)
+                var claimedNewUser = false;
+                try
                 {
-                    answer.BookingId = booking.Id;
-                    answer.Answer = Truncate(answer.Answer, 2000);
-                    if (questionsSeen.Add(answer.QuestionId)) { newQuestionIds.Add(answer.QuestionId); }
-                }
-
-                if (newQuestionIds.Any())
-                {
-                    foreach (var question in await libCalClient.GetAppointmentQuestions(newQuestionIds))
+                    booking.UserHash = Hash(booking.Email);
+                    foreach (var answer in booking.Answers)
                     {
-                        // If question.Options is null, assign an empty list to it
-                        foreach (var option in question.Options ??= new List<QuestionOption>())
+                        answer.BookingId = booking.Id;
+                        answer.Answer = Truncate(answer.Answer, 2000);
+                        if (questionsSeen.Add(answer.QuestionId)) { newQuestionIds.Add(answer.QuestionId); }
+                    }
+
+                    if (newQuestionIds.Any())
+                    {
+                        foreach (var question in await libCalClient.GetAppointmentQuestions(newQuestionIds))
                         {
-                            option.QuestionId = question.Id;
+                            // If question.Options is null, assign an empty list to it
+                            foreach (var option in question.Options ??= new List<QuestionOption>())
+                            {
+                                option.QuestionId = question.Id;
+                            }
+
+                            db.Upsert(question);
                         }
-
-                        db.Upsert(question);
                     }
-                }
 
-                db.Upsert(booking);
-                if (usersSeen.Add(booking.UserId))
-                {
-                    try
+                    db.Upsert(booking);
+                    if (usersSeen.Add(booking.UserId))
                     {
-                        var user = await libCalClient.GetAppointmentUser(booking.UserId);
-                        user.Description = Truncate(user.Description, 2000);
-                        db.Upsert(user);
-                    }
-                    catch (FlurlHttpException exception)
-                    {
-                        var response = await exception.GetResponseStringAsync();
-                        if (response == "No user/data found. Ensure user has MyScheduler enabled." ||
-                            response == "no user/data found. ensure user has appointments enabled.")
+                        claimedNewUser = true;
+                        try
                         {
-                            // just skip these for now
+                            var user = await libCalClient.GetAppointmentUser(booking.UserId);
+                            user.Description = Truncate(user.Description, 2000);
+                            db.Upsert(user);
                         }
-                        else { throw; }
+                        catch (FlurlHttpException exception)
+                        {
+                            var response = await exception.GetResponseStringAsync();
+                            if (response == "No user/data found. Ensure user has MyScheduler enabled." ||
+                                response == "no user/data found. ensure user has appointments enabled.")
+                            {
+                                // just skip these for now
+                            }
+                            else { throw; }
+                        }
                     }
+
+                    await db.SaveChangesAsync();
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine(
+                        $"[Appointment booking {booking.Id}] from={booking.FromDate:O} to={booking.ToDate:O} - failed to save: {ex.Message}");
+                    // This booking never actually persisted, so let a later booking retry any ids it claimed
+                    foreach (var questionId in newQuestionIds) { questionsSeen.Remove(questionId); }
+                    if (claimedNewUser) { usersSeen.Remove(booking.UserId); }
+                }
+                finally
+                {
+                    db.ChangeTracker.Clear();
                 }
             }
         }
@@ -119,12 +152,23 @@ async Task RunUpdate(UpdateOptions updateOptions)
             var bookings = await libCalClient.GetSpaceBookings(updateOptions.FromDate, updateOptions.ToDate, updateOptions.LimitLocations);
             foreach (var booking in bookings)
             {
-                booking.UserHash = Hash(booking.Account);
-                db.Upsert2(booking);
+                try
+                {
+                    booking.UserHash = Hash(booking.Account);
+                    db.Upsert2(booking);
+                    await db.SaveChangesAsync();
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine(
+                        $"[Space booking {booking.Id}] from={booking.FromDate:O} to={booking.ToDate:O} - failed to save: {ex.Message}");
+                }
+                finally
+                {
+                    db.ChangeTracker.Clear();
+                }
             }
         }
-
-        await db.SaveChangesAsync();
     }
     catch (FlurlHttpException exception)
     {
