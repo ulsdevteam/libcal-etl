@@ -176,12 +176,19 @@ class Database : DbContext
         });
     }
 
+    /// <summary>
+    /// True when this context is backed by Snowflake (as opposed to the Sqlite database used for local testing).
+    /// Sqlite has no stages/PUT/COPY INTO/MERGE, so callers use this to fall back to plain EF Core writes there.
+    /// </summary>
+    public bool IsSnowflake { get; private set; }
+
     protected override void OnConfiguring(DbContextOptionsBuilder options)
     {
         var connectionString = Config["CONNECTION_STRING"];
         if (connectionString.StartsWith("Filename=")) { options.UseSqlite(connectionString); }
         else
         {
+            IsSnowflake = true;
             options.UseSnowflake(connectionString,
                 snowflakeOptions => { snowflakeOptions.MigrationsHistoryTable("LIBCAL_EF_MIGRATIONS"); });
         }
