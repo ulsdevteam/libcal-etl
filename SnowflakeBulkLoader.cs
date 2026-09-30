@@ -142,6 +142,7 @@ static class SnowflakeBulkLoader
             // file:// with forward slashes is accepted by the Snowflake .NET driver's PUT parser on both
             // Windows and Linux; verify this against the actual driver version in use.
             var uploadUri = "file://" + localPath.Replace('\\', '/');
+            // PUT must run synchronously - see ExecuteSync's comment for why
             ExecuteSync(conn, $"PUT '{uploadUri}' @%\"{table}\" OVERWRITE = TRUE AUTO_COMPRESS = TRUE");
 
             var columnList = string.Join(", ", columns.Select(c => $"\"{c}\""));
@@ -182,6 +183,7 @@ static class SnowflakeBulkLoader
             bool b => b ? "TRUE" : "FALSE",
             DateTimeOffset dto => dto.ToString("O", CultureInfo.InvariantCulture),
             DateTime dt => dt.ToString("O", CultureInfo.InvariantCulture),
+            Uri uri => uri.ToString(),
             byte or sbyte or short or ushort or int or uint or long or ulong =>
                 Convert.ToString(value, CultureInfo.InvariantCulture),
             _ => value.ToString()

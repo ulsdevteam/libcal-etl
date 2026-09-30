@@ -47,6 +47,11 @@ async Task RunUpdate(UpdateOptions updateOptions)
                 var events = await libCalClient.GetEvents(calendarId, updateOptions.FromDate, updateOptions.ToDate);
                 if (!events.Any()) { continue; }
 
+                // GetEvents splits the requested range into 30-day windows (see GetInDateInterval); if an
+                // event's own date range straddles a window boundary, LibCal can return that same event
+                // from two different windowed requests. Dedupe here rather than downstream, since a
+                // duplicate id would also collide in the Events MERGE later, not just in registrations.
+                events = events.DistinctBy(e => e.Id).ToList();
                 // Should the number of ids being sent per call be limited? Haven't hit the API max yet
                 var registrations =
                     (await libCalClient.GetRegistrations(events.Select(e => e.Id)))
