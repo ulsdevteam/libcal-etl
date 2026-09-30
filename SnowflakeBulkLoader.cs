@@ -2,7 +2,6 @@ using System.Data;
 using System.Data.Common;
 using System.Globalization;
 using System.Text;
-using System.Threading;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 
@@ -12,12 +11,7 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 /// round trip costs a few hundred ms to over a second regardless of how small the statement is, so
 /// for a batch of N rows this trades ~2N round trips for roughly 3 fixed-cost round trips total.
 ///
-/// This only works against Snowflake (stages, PUT, and MERGE aren't available in Sqlite), so callers
-/// should check <c>Database.IsSnowflake</c> and fall back to the row-by-row EF path otherwise.
-///
-/// NOTE: this has not been run against a live Snowflake warehouse. The SQL text (particularly the PUT
-/// file:// URI form and the FILE_FORMAT options) should be verified against a real account before
-/// relying on it for production loads - please treat this as a draft to validate, not tested code.
+/// This only works against Snowflake (stages, PUT, and MERGE aren't available in Sqlite).
 /// </summary>
 static class SnowflakeBulkLoader
 {
@@ -148,8 +142,7 @@ static class SnowflakeBulkLoader
             // file:// with forward slashes is accepted by the Snowflake .NET driver's PUT parser on both
             // Windows and Linux; verify this against the actual driver version in use.
             var uploadUri = "file://" + localPath.Replace('\\', '/');
-            await ExecuteAsync(conn, $"PUT '{uploadUri}' @%\"{table}\" OVERWRITE = TRUE AUTO_COMPRESS = TRUE",
-                cancellationToken);
+            ExecuteSync(conn, $"PUT '{uploadUri}' @%\"{table}\" OVERWRITE = TRUE AUTO_COMPRESS = TRUE");
 
             var columnList = string.Join(", ", columns.Select(c => $"\"{c}\""));
             await ExecuteAsync(conn, $"""
@@ -213,4 +206,16 @@ static class SnowflakeBulkLoader
         cmd.CommandText = sql;
         await cmd.ExecuteNonQueryAsync(cancellationToken);
     }
+
+    // PUT (and GET) are handled client-side by the Snowflake .NET driver and are only supported through
+    // the synchronous ADO.NET API - ExecuteNonQueryAsync throws "Get and Put are not supported in async
+    // calls" for these specifically. Everything else (CREATE/MERGE/COPY INTO/DELETE/INSERT/DROP) goes
+    // through ExecuteAsync above as normal.
+    static void ExecuteSync(DbConnection conn, string sql)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = sql;
+        cmd.ExecuteNonQuery();
+    }
+
 }

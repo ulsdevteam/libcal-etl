@@ -35,7 +35,7 @@ async Task RunUpdate(UpdateOptions updateOptions)
         await using var db = new Database(config);
         // Keep one Snowflake session open for the whole run: the bulk path relies on TEMPORARY staging
         // tables surviving across calls, and it avoids re-paying connection/warehouse-resume cost per batch.
-        if (db.IsSnowflake) { await db.Database.OpenConnectionAsync(); }
+        await db.Database.OpenConnectionAsync();
 
         bool Updating(DataSources source) => updateOptions.Sources.HasFlag(source);
 
@@ -52,41 +52,7 @@ async Task RunUpdate(UpdateOptions updateOptions)
                     (await libCalClient.GetRegistrations(events.Select(e => e.Id)))
                     .ToDictionary(r => r.EventId, r => r.Registrants);
 
-                if (db.IsSnowflake)
-                {
-                    await SaveEventBatchAsync(db, calendarId, events, registrations);
-                }
-                else
-                {
-                    // @ sign because event is a reserved keyword
-                    foreach (var @event in events)
-                    {
-                        try
-                        {
-                            // This line would throw if the above call didn't return an entry for one of the ids;
-                            // that's now caught below and reported per-event instead of aborting the whole run
-                            @event.Registrants = registrations[@event.Id];
-                            foreach (var registrant in @event.Registrants) { registrant.UserHash = Hash(registrant.Email); }
-                            foreach (var category in @event.Category) { category.EventId = @event.Id; }
-                            // just truncate strings longer than 2000 for oracle
-                            @event.Description = Truncate(@event.Description, 2000);
-                            @event.MoreInfo = Truncate(@event.MoreInfo, 2000);
-                            db.Upsert(@event);
-                            await db.SaveChangesAsync();
-                        }
-                        catch (Exception ex)
-                        {
-                            Console.Error.WriteLine(
-                                $"[Event {@event.Id}] start={@event.Start:O} end={@event.End:O} - failed to save: {ex.Message}");
-                        }
-                        finally
-                        {
-                            // Detach everything staged for this event so a failure (or the save we just made)
-                            // doesn't affect change tracking for the next event
-                            db.ChangeTracker.Clear();
-                        }
-                    }
-                }
+                await SaveEventBatchAsync(db, calendarId, events, registrations);
             }
         }
 
@@ -98,81 +64,9 @@ async Task RunUpdate(UpdateOptions updateOptions)
             var questionsSeen = new HashSet<long>();
             var usersSeen = new HashSet<long>();
 
-            if (db.IsSnowflake)
+            foreach (var batch in bookings.Chunk(SnowflakeBatchSize))
             {
-                foreach (var batch in bookings.Chunk(SnowflakeBatchSize))
-                {
-                    await SaveAppointmentBatchAsync(db, libCalClient, batch, questionsSeen, usersSeen);
-                }
-            }
-            else
-            {
-                foreach (var booking in bookings)
-                {
-                    // Track ids newly claimed by this booking so they can be released for retry if the save below fails
-                    var newQuestionIds = new List<long>();
-                    var claimedNewUser = false;
-                    try
-                    {
-                        booking.UserHash = Hash(booking.Email);
-                        foreach (var answer in booking.Answers)
-                        {
-                            answer.BookingId = booking.Id;
-                            answer.Answer = Truncate(answer.Answer, 2000);
-                            if (questionsSeen.Add(answer.QuestionId)) { newQuestionIds.Add(answer.QuestionId); }
-                        }
-
-                        if (newQuestionIds.Any())
-                        {
-                            foreach (var question in await libCalClient.GetAppointmentQuestions(newQuestionIds))
-                            {
-                                // If question.Options is null, assign an empty list to it
-                                foreach (var option in question.Options ??= new List<QuestionOption>())
-                                {
-                                    option.QuestionId = question.Id;
-                                }
-
-                                db.Upsert(question);
-                            }
-                        }
-
-                        db.Upsert(booking);
-                        if (usersSeen.Add(booking.UserId))
-                        {
-                            claimedNewUser = true;
-                            try
-                            {
-                                var user = await libCalClient.GetAppointmentUser(booking.UserId);
-                                user.Description = Truncate(user.Description, 2000);
-                                db.Upsert(user);
-                            }
-                            catch (FlurlHttpException exception)
-                            {
-                                var response = await exception.GetResponseStringAsync();
-                                if (response == "No user/data found. Ensure user has MyScheduler enabled." ||
-                                    response == "no user/data found. ensure user has appointments enabled.")
-                                {
-                                    // just skip these for now
-                                }
-                                else { throw; }
-                            }
-                        }
-
-                        await db.SaveChangesAsync();
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.Error.WriteLine(
-                            $"[Appointment booking {booking.Id}] from={booking.FromDate:O} to={booking.ToDate:O} - failed to save: {ex.Message}");
-                        // This booking never actually persisted, so let a later booking retry any ids it claimed
-                        foreach (var questionId in newQuestionIds) { questionsSeen.Remove(questionId); }
-                        if (claimedNewUser) { usersSeen.Remove(booking.UserId); }
-                    }
-                    finally
-                    {
-                        db.ChangeTracker.Clear();
-                    }
-                }
+                await SaveAppointmentBatchAsync(db, libCalClient, batch, questionsSeen, usersSeen);
             }
         }
 
@@ -180,44 +74,20 @@ async Task RunUpdate(UpdateOptions updateOptions)
         {
             var bookings = await libCalClient.GetSpaceBookings(updateOptions.FromDate, updateOptions.ToDate, updateOptions.LimitLocations);
 
-            if (db.IsSnowflake)
+            foreach (var batch in bookings.Chunk(SnowflakeBatchSize))
             {
-                foreach (var batch in bookings.Chunk(SnowflakeBatchSize))
+                try
                 {
-                    try
-                    {
-                        foreach (var booking in batch) { booking.UserHash = Hash(booking.Account); }
-                        await SnowflakeBulkLoader.BulkUpsertAsync(db.Database, "LIBCAL_SPACE_BOOKINGS", ["ID"],
-                            SpaceBookingColumns(), batch);
-                    }
-                    catch (Exception ex)
-                    {
-                        var minDate = batch.Min(b => b.FromDate);
-                        var maxDate = batch.Max(b => b.FromDate);
-                        Console.Error.WriteLine(
-                            $"[Space booking batch] {batch.Length} bookings, from-date range {minDate:O} to {maxDate:O} - failed to save: {ex.Message}");
-                    }
+                    foreach (var booking in batch) { booking.UserHash = Hash(booking.Account); }
+                    await SnowflakeBulkLoader.BulkUpsertAsync(db.Database, "LIBCAL_SPACE_BOOKINGS", ["ID"],
+                        SpaceBookingColumns(), batch);
                 }
-            }
-            else
-            {
-                foreach (var booking in bookings)
+                catch (Exception ex)
                 {
-                    try
-                    {
-                        booking.UserHash = Hash(booking.Account);
-                        db.Upsert2(booking);
-                        await db.SaveChangesAsync();
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.Error.WriteLine(
-                            $"[Space booking {booking.Id}] from={booking.FromDate:O} to={booking.ToDate:O} - failed to save: {ex.Message}");
-                    }
-                    finally
-                    {
-                        db.ChangeTracker.Clear();
-                    }
+                    var minDate = batch.Min(b => b.FromDate);
+                    var maxDate = batch.Max(b => b.FromDate);
+                    Console.Error.WriteLine(
+                        $"[Space booking batch] {batch.Length} bookings, from-date range {minDate:O} to {maxDate:O} - failed to save: {ex.Message}");
                 }
             }
         }
@@ -450,18 +320,10 @@ async Task RunBatch(BatchOptions batchOptions)
         }
     }
 
-    if (db.IsSnowflake)
-    {
-        // ID is Snowflake's auto-incrementing identity column here, so it's intentionally left out of the
-        // column list/COPY INTO - Snowflake assigns it. This is a plain append (no MERGE): batch imports
-        // were never upserted by the old code either, just always inserted.
-        await SnowflakeBulkLoader.BulkInsertAsync(db.Database, "LIBCAL_ARCHIVED_SPACE_BOOKINGS", ArchivedSpaceBookingColumns(), rows);
-    }
-    else
-    {
-        foreach (var row in rows) { db.Add(row); }
-        await db.SaveChangesAsync();
-    }
+    // ID is Snowflake's auto-incrementing identity column here, so it's intentionally left out of the
+    // column list/COPY INTO - Snowflake assigns it. This is a plain append (no MERGE): batch imports
+    // were never upserted by the old code either, just always inserted.
+    await SnowflakeBulkLoader.BulkInsertAsync(db.Database, "LIBCAL_ARCHIVED_SPACE_BOOKINGS", ArchivedSpaceBookingColumns(), rows);
 }
 
 async Task PrintSchema(PrintSchemaOptions _)
