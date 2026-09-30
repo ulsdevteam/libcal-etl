@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Metadata;
 
 /// <summary>
 /// Loads batches of rows into Snowflake via stage -> PUT -> COPY INTO -> MERGE, instead of the
@@ -15,6 +16,108 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 /// </summary>
 static class SnowflakeBulkLoader
 {
+    /// <summary>
+    /// Builds (column name, value accessor) pairs for an entity type directly from Database.cs's EF model,
+    /// instead of hand-writing them - so a column rename/add/remove in OnModelCreating is picked up here
+    /// automatically instead of silently drifting out of sync with a parallel hand-written list.
+    ///
+    /// This walks scalar properties, plus any OwnsOne navigations recursively (so Event's Location/Campus/
+    /// Owner/Calendar/Url all flatten into LIBCAL_EVENTS' own columns, same as EF's own table-splitting
+    /// would do). OwnsMany navigations (Category, Registrants, FutureDates, Answers, Options) are NOT
+    /// walked - those are separate child tables, loaded via their own BulkReplaceChildrenAsync call.
+    ///
+    /// Two things this can't get from the model, because there's no CLR member behind them at all:
+    /// - Shadow foreign key properties (Registrant's EVENT_ID, FutureDate's ORIGINAL_EVENT_ID) - see
+    ///   <see cref="OwnedCollectionForeignKeyColumn"/> for those.
+    /// - Value converters (e.g. Uri -> string) aren't applied here, since this reads the raw CLR value via
+    ///   reflection rather than going through EF's materialization pipeline. WriteCsvField below handles
+    ///   the small set of CLR types this project actually needs (bool/long/string/DateTime(Offset)/Uri)
+    ///   directly instead.
+    /// Auto-incrementing identity columns (ArchivedSpaceBooking.Id) ARE handled here: any property with
+    /// ValueGenerated.OnAdd is skipped, since Snowflake assigns those on insert.
+    /// </summary>
+    public static (string Column, Func<T, object?> Value)[] MapColumns<T>(IModel model)
+    {
+        var entityType = model.FindEntityType(typeof(T))
+            ?? throw new InvalidOperationException($"{typeof(T)} is not part of the EF model");
+        return Walk(entityType, entity => entity).ToArray();
+
+        static IEnumerable<(string Column, Func<T, object?> Value)> Walk(IEntityType entityType, Func<T, object?> ownerAccessor)
+        {
+            foreach (var property in entityType.GetProperties())
+            {
+                if (property.PropertyInfo is null) { continue; } // shadow property - see doc comment above
+                if (property.ValueGenerated == ValueGenerated.OnAdd) { continue; } // e.g. an identity column
+                var propertyInfo = property.PropertyInfo;
+                var columnName = property.GetColumnName();
+                yield return (columnName, entity =>
+                {
+                    var owner = ownerAccessor(entity);
+                    return owner is null ? null : propertyInfo.GetValue(owner);
+                });
+            }
+
+            foreach (var navigation in entityType.GetNavigations())
+            {
+                if (!navigation.ForeignKey.IsOwnership || navigation.IsCollection) { continue; } // only flatten OwnsOne
+                var navigationProperty = navigation.PropertyInfo;
+                if (navigationProperty is null) { continue; }
+
+                Func<T, object?> nestedOwnerAccessor = entity =>
+                {
+                    var owner = ownerAccessor(entity);
+                    return owner is null ? null : navigationProperty.GetValue(owner);
+                };
+
+                foreach (var nested in Walk(navigation.TargetEntityType, nestedOwnerAccessor))
+                {
+                    yield return nested;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// The column names making up an entity type's primary key, read from the model instead of assuming "ID".
+    /// </summary>
+    public static string[] PrimaryKeyColumns(IModel model, Type entityClrType)
+    {
+        var entityType = model.FindEntityType(entityClrType)
+            ?? throw new InvalidOperationException($"{entityClrType} is not part of the EF model");
+        var key = entityType.FindPrimaryKey()
+            ?? throw new InvalidOperationException($"{entityClrType} has no primary key");
+        return key.Properties.Select(p => p.GetColumnName()).ToArray();
+    }
+
+    /// <summary>
+    /// The column name EF assigned to the foreign key of an owned-collection navigation (e.g.
+    /// Event.Registrants' EVENT_ID, Event.FutureDates' ORIGINAL_EVENT_ID), read from the model rather
+    /// than needing to know or guess the shadow property's CLR-side name.
+    /// </summary>
+    public static string OwnedCollectionForeignKeyColumn(IModel model, Type ownerClrType, string navigationName)
+    {
+        var ownerType = model.FindEntityType(ownerClrType)
+            ?? throw new InvalidOperationException($"{ownerClrType} is not part of the EF model");
+        var navigation = ownerType.FindNavigation(navigationName)
+            ?? throw new InvalidOperationException($"{ownerClrType} has no navigation named '{navigationName}'");
+        return navigation.ForeignKey.Properties.Single().GetColumnName();
+    }
+
+    /// <summary>
+    /// Adapts columns that read from <typeparamref name="TInner"/> so they instead read from a wrapper type
+    /// that also carries the parent key alongside it - needed for Registrant/FutureDate in Program.cs, since
+    /// their parent Event's id has to travel with them despite not being a real property on either type.
+    /// </summary>
+    public static (string Column, Func<TOuter, object?> Value)[] Reparent<TInner, TOuter>(
+        this (string Column, Func<TInner, object?> Value)[] columns, Func<TOuter, TInner?> select) where TInner : class
+    {
+        return columns.Select(c => (c.Column, (Func<TOuter, object?>)(outer =>
+        {
+            var inner = select(outer);
+            return inner is null ? null : c.Value(inner);
+        }))).ToArray();
+    }
+
     /// <summary>
     /// Upsert a batch of rows into <paramref name="table"/> keyed by <paramref name="keyColumns"/>,
     /// using one MERGE statement instead of one SELECT + one INSERT/UPDATE per row.

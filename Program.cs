@@ -8,6 +8,7 @@ using dotenv.net;
 using Flurl.Http;
 using LibCalTypes;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.FileSystemGlobbing;
 
@@ -84,8 +85,9 @@ async Task RunUpdate(UpdateOptions updateOptions)
                 try
                 {
                     foreach (var booking in batch) { booking.UserHash = Hash(booking.Account); }
-                    await SnowflakeBulkLoader.BulkUpsertAsync(db.Database, "LIBCAL_SPACE_BOOKINGS", ["ID"],
-                        SpaceBookingColumns(), batch);
+                    await SnowflakeBulkLoader.BulkUpsertAsync(db.Database, "LIBCAL_SPACE_BOOKINGS",
+                        SnowflakeBulkLoader.PrimaryKeyColumns(db.Model, typeof(SpaceBooking)),
+                        SnowflakeBulkLoader.MapColumns<SpaceBooking>(db.Model), batch);
                 }
                 catch (Exception ex)
                 {
@@ -125,13 +127,17 @@ async Task SaveEventBatchAsync(Database db, int calendarId, List<Event> events, 
             @event.MoreInfo = Truncate(@event.MoreInfo, 2000);
         }
 
-        await SnowflakeBulkLoader.BulkUpsertAsync(db.Database, "LIBCAL_EVENTS", ["ID"], EventColumns(), events);
-        await SnowflakeBulkLoader.BulkReplaceChildrenAsync(db.Database, "LIBCAL_CATEGORIES", "EVENT_ID",
-            CategoryColumns(), events.SelectMany(e => e.Category).ToList());
-        await SnowflakeBulkLoader.BulkReplaceChildrenAsync(db.Database, "LIBCAL_EVENT_REGISTRANTS", "EVENT_ID",
-            RegistrantColumns(), events.SelectMany(e => e.Registrants.Select(r => (EventId: e.Id, Registrant: r))).ToList());
-        await SnowflakeBulkLoader.BulkReplaceChildrenAsync(db.Database, "LIBCAL_FUTURE_DATES", "ORIGINAL_EVENT_ID",
-            FutureDateColumns(), events.SelectMany(e => e.FutureDates.Select(fd => (OriginalEventId: e.Id, FutureDate: fd))).ToList());
+        await SnowflakeBulkLoader.BulkUpsertAsync(db.Database, "LIBCAL_EVENTS", SnowflakeBulkLoader.PrimaryKeyColumns(db.Model, typeof(Event)),
+            SnowflakeBulkLoader.MapColumns<Event>(db.Model), events);
+        await SnowflakeBulkLoader.BulkReplaceChildrenAsync(db.Database, "LIBCAL_CATEGORIES",
+            SnowflakeBulkLoader.OwnedCollectionForeignKeyColumn(db.Model, typeof(Event), nameof(Event.Category)),
+            SnowflakeBulkLoader.MapColumns<Category>(db.Model), events.SelectMany(e => e.Category).ToList());
+        await SnowflakeBulkLoader.BulkReplaceChildrenAsync(db.Database, "LIBCAL_EVENT_REGISTRANTS",
+            SnowflakeBulkLoader.OwnedCollectionForeignKeyColumn(db.Model, typeof(Event), nameof(Event.Registrants)),
+            RegistrantColumns(db.Model), events.SelectMany(e => e.Registrants.Select(r => (EventId: e.Id, Registrant: r))).ToList());
+        await SnowflakeBulkLoader.BulkReplaceChildrenAsync(db.Database, "LIBCAL_FUTURE_DATES",
+            SnowflakeBulkLoader.OwnedCollectionForeignKeyColumn(db.Model, typeof(Event), nameof(Event.FutureDates)),
+            FutureDateColumns(db.Model), events.SelectMany(e => e.FutureDates.Select(fd => (OriginalEventId: e.Id, FutureDate: fd))).ToList());
     }
     catch (Exception ex)
     {
@@ -203,16 +209,21 @@ async Task SaveAppointmentBatchAsync(Database db, LibCalClient libCalClient, App
         // Questions/Users/Options are upserted/replaced before Bookings/Answers so a MERGE never needs to
         // see a QuestionId/UserId that isn't there yet (though Snowflake doesn't enforce FKs at write time
         // regardless - this ordering is just to keep the data consistent, not to satisfy a constraint).
-        await SnowflakeBulkLoader.BulkUpsertAsync(db.Database, "LIBCAL_APPOINTMENT_QUESTIONS", ["ID"],
-            AppointmentQuestionColumns(), questions);
-        await SnowflakeBulkLoader.BulkReplaceChildrenAsync(db.Database, "LIBCAL_QUESTION_OPTIONS", "QUESTION_ID",
-            QuestionOptionColumns(), questions.SelectMany(q => q.Options).ToList());
-        await SnowflakeBulkLoader.BulkUpsertAsync(db.Database, "LIBCAL_APPOINTMENT_USERS", ["USER_ID"],
-            AppointmentUserColumns(), users);
-        await SnowflakeBulkLoader.BulkUpsertAsync(db.Database, "LIBCAL_APPOINTMENT_BOOKINGS", ["ID"],
-            AppointmentBookingColumns(), batch);
-        await SnowflakeBulkLoader.BulkReplaceChildrenAsync(db.Database, "LIBCAL_QUESTION_ANSWERS", "BOOKING_ID",
-            QuestionAnswerColumns(), batch.SelectMany(b => b.Answers ?? []).ToList());
+        await SnowflakeBulkLoader.BulkUpsertAsync(db.Database, "LIBCAL_APPOINTMENT_QUESTIONS",
+            SnowflakeBulkLoader.PrimaryKeyColumns(db.Model, typeof(AppointmentQuestion)),
+            SnowflakeBulkLoader.MapColumns<AppointmentQuestion>(db.Model), questions);
+        await SnowflakeBulkLoader.BulkReplaceChildrenAsync(db.Database, "LIBCAL_QUESTION_OPTIONS",
+            SnowflakeBulkLoader.OwnedCollectionForeignKeyColumn(db.Model, typeof(AppointmentQuestion), nameof(AppointmentQuestion.Options)),
+            SnowflakeBulkLoader.MapColumns<QuestionOption>(db.Model), questions.SelectMany(q => q.Options).ToList());
+        await SnowflakeBulkLoader.BulkUpsertAsync(db.Database, "LIBCAL_APPOINTMENT_USERS",
+            SnowflakeBulkLoader.PrimaryKeyColumns(db.Model, typeof(AppointmentUser)),
+            SnowflakeBulkLoader.MapColumns<AppointmentUser>(db.Model), users);
+        await SnowflakeBulkLoader.BulkUpsertAsync(db.Database, "LIBCAL_APPOINTMENT_BOOKINGS",
+            SnowflakeBulkLoader.PrimaryKeyColumns(db.Model, typeof(AppointmentBooking)),
+            SnowflakeBulkLoader.MapColumns<AppointmentBooking>(db.Model), batch);
+        await SnowflakeBulkLoader.BulkReplaceChildrenAsync(db.Database, "LIBCAL_QUESTION_ANSWERS",
+            SnowflakeBulkLoader.OwnedCollectionForeignKeyColumn(db.Model, typeof(AppointmentBooking), nameof(AppointmentBooking.Answers)),
+            SnowflakeBulkLoader.MapColumns<QuestionAnswer>(db.Model), batch.SelectMany(b => b.Answers ?? []).ToList());
     }
     catch (Exception ex)
     {
@@ -325,10 +336,10 @@ async Task RunBatch(BatchOptions batchOptions)
         }
     }
 
-    // ID is Snowflake's auto-incrementing identity column here, so it's intentionally left out of the
-    // column list/COPY INTO - Snowflake assigns it. This is a plain append (no MERGE): batch imports
-    // were never upserted by the old code either, just always inserted.
-    await SnowflakeBulkLoader.BulkInsertAsync(db.Database, "LIBCAL_ARCHIVED_SPACE_BOOKINGS", ArchivedSpaceBookingColumns(), rows);
+    // ID is Snowflake's auto-incrementing identity column here - MapColumns skips any property with
+    // ValueGenerated.OnAdd automatically, so it's excluded without needing a hand-maintained list.
+    await SnowflakeBulkLoader.BulkInsertAsync(db.Database, "LIBCAL_ARCHIVED_SPACE_BOOKINGS",
+        SnowflakeBulkLoader.MapColumns<ArchivedSpaceBooking>(db.Model), rows);
 }
 
 async Task PrintSchema(PrintSchemaOptions _)
@@ -344,173 +355,23 @@ string Truncate(string str, int len) => str.Length > len ? str[..len] : str;
 string Hash(string str) =>
     Convert.ToHexString(MD5.HashData(Encoding.UTF8.GetBytes(str.ToLowerInvariant()))).ToLowerInvariant();
 
-// Column projections used by the Snowflake bulk-load path. Column names/order must match the schema in
-// Migrations/*_SnowflakeInitial.cs exactly, since these bypass EF's own model mapping entirely.
+// The rest of the entity->column mappings are derived straight from the EF model via
+// SnowflakeBulkLoader.MapColumns<T>() at each call site, instead of being hand-written here. Registrant
+// and FutureDate are the two exceptions: their parent-Event id is a shadow property with no CLR member
+// (see Database.cs's OwnsMany config), so MapColumns can't read it off the entity - it has to travel
+// alongside the entity in a small wrapper tuple instead, built here by re-parenting the model-derived
+// Registrant/FutureDate columns and appending the one shadow column (name still pulled from the model).
 
-(string, Func<Event, object?>)[] EventColumns() =>
-[
-    ("ID", e => e.Id),
-    ("TITLE", e => e.Title),
-    ("ALL_DAY", e => e.AllDay),
-    ("START", e => e.Start),
-    ("END", e => e.End),
-    ("DESCRIPTION", e => e.Description),
-    ("URL_PUBLIC", e => e.Url?.Public?.ToString()),
-    ("URL_ADMIN", e => e.Url?.Admin?.ToString()),
-    ("LOCATION_ID", e => e.Location?.Id),
-    ("LOCATION_TYPE", e => e.Location?.Type),
-    ("LOCATION_NAME", e => e.Location?.Name),
-    ("CAMPUS_ID", e => e.Campus?.Id),
-    ("CAMPUS_NAME", e => e.Campus?.Name),
-    ("OWNER_ID", e => e.Owner?.Id),
-    ("OWNER_NAME", e => e.Owner?.Name),
-    ("PRESENTER", e => e.Presenter),
-    ("CALENDAR_ID", e => e.Calendar?.Id),
-    ("CALENDAR_NAME", e => e.Calendar?.Name),
-    ("CALENDAR_PUBLIC", e => e.Calendar?.Public?.ToString()),
-    ("CALENDAR_ADMIN", e => e.Calendar?.Admin?.ToString()),
-    ("SEATS", e => e.Seats),
-    ("REGISTRATION", e => e.Registration),
-    ("HAS_REGISTRATION_OPENED", e => e.HasRegistrationOpened),
-    ("HAS_REGISTRATION_CLOSED", e => e.HasRegistrationClosed),
-    ("PHYSICAL_SEATS", e => e.PhysicalSeats),
-    ("PHYSICAL_SEATS_TAKEN", e => e.PhysicalSeatsTaken),
-    ("ONLINE_SEATS", e => e.OnlineSeats),
-    ("ONLINE_SEATS_TAKEN", e => e.OnlineSeatsTaken),
-    ("SEATS_TAKEN", e => e.SeatsTaken),
-    ("WAIT_LIST", e => e.WaitList),
-    ("COLOR", e => e.Color),
-    ("FEATURED_IMAGE", e => e.FeaturedImage?.ToString()),
-    ("MORE_INFO", e => e.MoreInfo),
-    ("SETUP_TIME", e => e.SetupTime),
-    ("TEARDOWN_TIME", e => e.TeardownTime),
-    ("ONLINE_USER_ID", e => e.OnlineUserId),
-    ("ZOOM_EMAIL", e => e.ZoomEmail),
-    ("ONLINE_MEETING_ID", e => e.OnlineMeetingId),
-    ("ONLINE_HOST_URL", e => e.OnlineHostUrl?.ToString()),
-    ("ONLINE_JOIN_URL", e => e.OnlineJoinUrl?.ToString()),
-    ("ONLINE_JOIN_PASSWORD", e => e.OnlineJoinPassword),
-    ("ONLINE_PROVIDER", e => e.OnlineProvider),
-];
+(string, Func<(long EventId, Registrant Registrant), object?>)[] RegistrantColumns(IModel model) =>
+    SnowflakeBulkLoader.MapColumns<Registrant>(model)
+        .Reparent<Registrant, (long EventId, Registrant Registrant)>(x => x.Registrant)
+        .Append((SnowflakeBulkLoader.OwnedCollectionForeignKeyColumn(model, typeof(Event), nameof(Event.Registrants)),
+            (Func<(long EventId, Registrant Registrant), object?>)(x => x.EventId)))
+        .ToArray();
 
-(string, Func<Category, object?>)[] CategoryColumns() =>
-[
-    ("ID", c => c.Id),
-    ("EVENT_ID", c => c.EventId),
-    ("NAME", c => c.Name),
-];
-
-// Registrant's EVENT_ID foreign key is a pure EF shadow property (no matching C# member), so the parent
-// Event's id has to travel alongside it explicitly rather than being read off the Registrant itself.
-(string, Func<(long EventId, Registrant Registrant), object?>)[] RegistrantColumns() =>
-[
-    ("BOOKING_ID", x => x.Registrant.BookingId),
-    ("USER_HASH", x => x.Registrant.UserHash),
-    ("REGISTRATION_TYPE", x => x.Registrant.RegistrationType),
-    ("BARCODE", x => x.Registrant.Barcode),
-    ("REGISTERED_DATE", x => x.Registrant.RegisteredDate),
-    ("ATTENDANCE", x => x.Registrant.Attendance),
-    ("EVENT_ID", x => x.EventId),
-];
-
-// Same situation as Registrant above: ORIGINAL_EVENT_ID is a shadow property, so it's carried alongside
-// the FutureDate rather than read off it.
-(string, Func<(long OriginalEventId, FutureDate FutureDate), object?>)[] FutureDateColumns() =>
-[
-    ("FUTURE_EVENT_ID", x => x.FutureDate.FutureEventId),
-    ("ORIGINAL_EVENT_ID", x => x.OriginalEventId),
-    ("START", x => x.FutureDate.Start),
-];
-
-(string, Func<AppointmentBooking, object?>)[] AppointmentBookingColumns() =>
-[
-    ("ID", b => b.Id),
-    ("USER_HASH", b => b.UserHash),
-    ("FROM_DATE", b => b.FromDate),
-    ("TO_DATE", b => b.ToDate),
-    ("USER_ID", b => b.UserId),
-    ("LOCATION", b => b.Location),
-    ("LOCATION_ID", b => b.LocationId),
-    ("GROUP", b => b.Group),
-    ("GROUP_ID", b => b.GroupId),
-    ("CATEGORY_ID", b => b.CategoryId),
-    ("DIRECTIONS", b => b.Directions),
-    ("CANCELLED", b => b.Cancelled),
-];
-
-(string, Func<QuestionAnswer, object?>)[] QuestionAnswerColumns() =>
-[
-    ("BOOKING_ID", a => a.BookingId),
-    ("QUESTION_ID", a => a.QuestionId),
-    ("ANSWER", a => a.Answer),
-];
-
-(string, Func<AppointmentQuestion, object?>)[] AppointmentQuestionColumns() =>
-[
-    ("ID", q => q.Id),
-    ("LABEL", q => q.Label),
-    ("TYPE", q => q.Type),
-    ("REQUIRED", q => q.Required),
-];
-
-(string, Func<QuestionOption, object?>)[] QuestionOptionColumns() =>
-[
-    ("QUESTION_ID", o => o.QuestionId),
-    ("OPTION", o => o.Option),
-];
-
-(string, Func<AppointmentUser, object?>)[] AppointmentUserColumns() =>
-[
-    ("USER_ID", u => u.UserId),
-    ("FIRST_NAME", u => u.FirstName),
-    ("LAST_NAME", u => u.LastName),
-    ("NICKNAME", u => u.Nickname),
-    ("EMAIL", u => u.Email),
-    ("URL", u => u.Url?.ToString()),
-    ("DESCRIPTION", u => u.Description),
-];
-
-(string, Func<SpaceBooking, object?>)[] SpaceBookingColumns() =>
-[
-    ("ID", b => b.Id),
-    ("USER_HASH", b => b.UserHash),
-    ("BOOK_ID", b => b.BookId),
-    ("ITEM_ID", b => b.ItemId),
-    ("CATEGORY_ID", b => b.CategoryId),
-    ("LOCATION_ID", b => b.LocationId),
-    ("FROM_DATE", b => b.FromDate),
-    ("TO_DATE", b => b.ToDate),
-    ("CREATED", b => b.Created),
-    ("STATUS", b => b.Status),
-    ("LOCATION_NAME", b => b.LocationName),
-    ("CATEGORY_NAME", b => b.CategoryName),
-    ("ITEM_NAME", b => b.ItemName),
-    ("CANCELLED", b => b.Cancelled),
-];
-
-// ID is excluded: it's an auto-incrementing identity column in Snowflake, assigned on insert.
-(string, Func<ArchivedSpaceBooking, object?>)[] ArchivedSpaceBookingColumns() =>
-[
-    ("BOOKING_ID", x => x.BookingId),
-    ("SPACE_ID", x => x.SpaceId),
-    ("SPACE_NAME", x => x.SpaceName),
-    ("LOCATION", x => x.Location),
-    ("ZONE", x => x.Zone),
-    ("CATEGORY", x => x.Category),
-    ("USER_HASH", x => x.UserHash),
-    ("FROM_DATE", x => x.FromDate),
-    ("TO_DATE", x => x.ToDate),
-    ("CREATED_DATE", x => x.CreatedDate),
-    ("EVENT_ID", x => x.EventId),
-    ("EVENT_TITLE", x => x.EventTitle),
-    ("EVENT_START", x => x.EventStart),
-    ("EVENT_END", x => x.EventEnd),
-    ("STATUS", x => x.Status),
-    ("CANCELLED_BY_USER", x => x.CancelledByUser),
-    ("CANCELLED_AT", x => x.CancelledAt),
-    ("SHOWED_UP", x => x.ShowedUp),
-    ("CHECKED_IN_DATE", x => x.CheckedInDate),
-    ("CHECKED_OUT_DATE", x => x.CheckedOutDate),
-    ("COST", x => x.Cost),
-    ("BOOKING_FORM_ANSWERS", x => x.BookingFormAnswers),
-];
+(string, Func<(long OriginalEventId, FutureDate FutureDate), object?>)[] FutureDateColumns(IModel model) =>
+    SnowflakeBulkLoader.MapColumns<FutureDate>(model)
+        .Reparent<FutureDate, (long OriginalEventId, FutureDate FutureDate)>(x => x.FutureDate)
+        .Append((SnowflakeBulkLoader.OwnedCollectionForeignKeyColumn(model, typeof(Event), nameof(Event.FutureDates)),
+            (Func<(long OriginalEventId, FutureDate FutureDate), object?>)(x => x.OriginalEventId)))
+        .ToArray();
