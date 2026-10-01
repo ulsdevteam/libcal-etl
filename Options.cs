@@ -20,6 +20,8 @@ class UpdateOptions
         set => _toDate = value;
     }
     
+    [Option('l', "lid", Required = false, HelpText = "Limits results to specified location ID")]
+    public string LimitLocations { get; set; }
 
     [Value(0, Required = true, MetaName = "sources", HelpText =
             "Which data sources to update, separated by commas. " +
@@ -37,13 +39,6 @@ enum DataSources
     Appointments = 2,
     Spaces = 4,
     All = 7
-}
-
-[Verb("batch")]
-class BatchOptions
-{
-    [Value(0, MetaName = "files")]
-    public IEnumerable<string> Files { get; set; }
 }
 
 [Verb("print-schema")]

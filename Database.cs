@@ -16,51 +16,6 @@ class Database : DbContext
 
     IConfiguration Config { get; }
 
-    /// <summary>
-    /// Add an entity to the context, setting its state to Added if it does not already exist, or Modified if it does.
-    /// </summary>
-    /// <param name="item">The new or updated entity</param>
-    /// <typeparam name="T">An entity type that is managed by this context</typeparam>
-    public void Upsert<T>(T item) where T : class
-    {
-        var entry = Entry(item);
-        if (entry.GetDatabaseValues() is null) { Add(item); }
-        else
-        {
-            Update(item);
-            // Update sets the state of all child objects to modified by default, but some may be newly added so we need to check
-            // If we had deeper nesting, this function would probably need to be recursive, or another strategy could be used
-            foreach (var collection in entry.Collections)
-            {
-                if (collection.CurrentValue is null) { continue; }
-
-                foreach (var childItem in collection.CurrentValue)
-                {
-                    var childEntry = collection.FindEntry(childItem);
-                    if (childEntry is not null && childEntry.GetDatabaseValues() is null)
-                    {
-                        childEntry.State = EntityState.Added;
-                    }
-                }
-            }
-        }
-    }
-
-    /// <summary>
-    /// Add an entity to the context, setting its state to Added if it does not already exist, or Modified if it does.
-    /// This method might not set the Modified state of child entities correctly.
-    /// </summary>
-    /// <param name="item">The new or updated entity</param>
-    /// <typeparam name="T">An entity type that is managed by this context</typeparam>
-    public void Upsert2<T>(T item) where T: class {
-        var id = typeof(T).GetProperty("Id").GetValue(item);
-        if (Set<T>().Find(id) is T existing) {
-            Entry(existing).CurrentValues.SetValues(item);
-        } else {
-            Add(item);
-        }
-    }
-
     // Called by EF to configure the schema
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -166,6 +121,7 @@ class Database : DbContext
             bookings.Ignore(b => b.LastName);
         });
 
+        // DEPRECATED: this table exists in the DB, but is not updated
         builder.Entity<ArchivedSpaceBooking>(archivedBookings =>
         {
             archivedBookings.ToTable("LIBCAL_ARCHIVED_SPACE_BOOKINGS");
@@ -179,13 +135,8 @@ class Database : DbContext
     protected override void OnConfiguring(DbContextOptionsBuilder options)
     {
         var connectionString = Config["CONNECTION_STRING"];
-        if (connectionString.StartsWith("Filename=")) { options.UseSqlite(connectionString); }
-        else
-        {
-            options.UseOracle(connectionString,
-                oracleOptions => { oracleOptions.MigrationsHistoryTable("LIBCAL_EF_MIGRATIONS"); });
-        }
-
+        options.UseSnowflake(connectionString,
+            snowflakeOptions => { snowflakeOptions.MigrationsHistoryTable("LIBCAL_EF_MIGRATIONS"); });
         options.UseUpperSnakeCaseNamingConvention();
     }
 

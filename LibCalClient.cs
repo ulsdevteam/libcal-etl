@@ -1,12 +1,15 @@
-﻿using Flurl.Http;
+﻿using System.Globalization;
+using Flurl.Http;
 using LibCalTypes;
 using Newtonsoft.Json.Linq;
+using Flurl.Http.Newtonsoft;
 
 class LibCalClient
 {
     public LibCalClient()
     {
         Client = new FlurlClient("https://pitt.libcal.com");
+        Client.Settings.JsonSerializer = new NewtonsoftJsonSerializer();
     }
 
     IFlurlClient Client { get; }
@@ -63,13 +66,21 @@ class LibCalClient
     /// </summary>
     /// <param name="eventIds">
     /// List of event ids.
-    /// Unclear from the API docs what the upper limit is on the number of ids per call.
+    /// Unclear from the API docs what the upper limit is on the number of ids per call, but a single
+    /// request with ~12,000 characters of concatenated ids (about 1300 events) got back an HTTP 414
+    /// (URI Too Long), so this pages the ids into chunks that keep the URL well under that.
     /// </param>
     /// <returns></returns>
     public async Task<List<RegistrationsResponse>> GetRegistrations(IEnumerable<long> eventIds)
     {
-        return await Client.Request("api/1.1/events", string.Join(',', eventIds), "registrations")
-            .GetJsonAsync<List<RegistrationsResponse>>();
+        var results = new List<RegistrationsResponse>();
+        foreach (var chunk in ChunkIdsByLength(eventIds))
+        {
+            results.AddRange(await Client.Request("api/1.1/events", string.Join(',', chunk), "registrations")
+                .GetJsonAsync<List<RegistrationsResponse>>());
+        }
+
+        return results;
     }
 
     /// <summary>
@@ -95,26 +106,75 @@ class LibCalClient
     }
 
     /// <summary>
-    /// Get the questions associated with an appointment
+    /// Get the questions associated with an appointment. Ids are chunked the same way as
+    /// <see cref="GetRegistrations"/>, for the same reason - this builds the same kind of
+    /// comma-joined URL segment and so is susceptible to the same HTTP 414.
     /// </summary>
     /// <param name="questionIds"></param>
     /// <returns></returns>
-    public Task<List<AppointmentQuestion>> GetAppointmentQuestions(IEnumerable<long> questionIds)
+    public async Task<List<AppointmentQuestion>> GetAppointmentQuestions(IEnumerable<long> questionIds)
     {
-        return Client.Request("/api/1.1/appointments/question", string.Join(',', questionIds))
-            .GetJsonAsync<List<AppointmentQuestion>>();
+        var results = new List<AppointmentQuestion>();
+        foreach (var chunk in ChunkIdsByLength(questionIds))
+        {
+            results.AddRange(await Client.Request("/api/1.1/appointments/question", string.Join(',', chunk))
+                .GetJsonAsync<List<AppointmentQuestion>>());
+        }
+
+        return results;
     }
 
     /// <summary>
     /// Get the space bookings for a given date interval.
     /// </summary>
     /// <returns></returns>
-    public Task<List<SpaceBooking>> GetSpaceBookings(DateTime fromDate, DateTime toDate)
+    public Task<List<SpaceBooking>> GetSpaceBookings(DateTime fromDate, DateTime toDate, string locationId)
     {
-        return GetInDateIntervalPaged<SpaceBooking>(Client.Request("/1.1/space/bookings"), fromDate, toDate);
+        var request = Client.Request("/1.1/space/bookings");
+        if (!string.IsNullOrEmpty(locationId))
+        {
+            request.SetQueryParam("lid", locationId);
+        }
+        return GetInDateIntervalPaged<SpaceBooking>(request, fromDate, toDate);
     }
 
         /// <summary>
+    /// Splits a list of ids into chunks whose comma-joined string representation stays under
+    /// <paramref name="maxLength"/> characters, rather than a fixed count - id values could in
+    /// principle vary enough in digit length that a fixed-count batch either overshoots the URL
+    /// length limit or (for small ids) sends far more, smaller requests than it needs to.
+    /// </summary>
+    /// <param name="ids"></param>
+    /// <param name="maxLength">
+    /// Kept comfortably under the ~2000-2048 character URL length some servers/proxies enforce -
+    /// this bounds only the joined id-list portion, so the fixed parts of the URL (host, path) still
+    /// have headroom on top of it.
+    /// </param>
+    static IEnumerable<List<long>> ChunkIdsByLength(IEnumerable<long> ids, int maxLength = 2048)
+    {
+        var chunk = new List<long>();
+        var chunkLength = 0;
+        foreach (var id in ids)
+        {
+            var idText = id.ToString(CultureInfo.InvariantCulture);
+            // +1 accounts for the comma that will separate this id from the previous one in the chunk
+            var addedLength = idText.Length + (chunk.Count > 0 ? 1 : 0);
+            if (chunk.Count > 0 && chunkLength + addedLength > maxLength)
+            {
+                yield return chunk;
+                chunk = new List<long>();
+                addedLength = idText.Length;
+                chunkLength = 0;
+            }
+
+            chunk.Add(id);
+            chunkLength += addedLength;
+        }
+
+        if (chunk.Count > 0) { yield return chunk; }
+    }
+
+    /// <summary>
     /// Get all data between two given dates by splitting them into periods.
     /// Each individual call has a limit of 500, so if you are hitting that limit, try reducing the period.
     /// </summary>
