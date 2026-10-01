@@ -41,12 +41,5 @@ enum DataSources
     All = 7
 }
 
-[Verb("batch")]
-class BatchOptions
-{
-    [Value(0, MetaName = "files")]
-    public IEnumerable<string> Files { get; set; }
-}
-
 [Verb("print-schema")]
 class PrintSchemaOptions { }

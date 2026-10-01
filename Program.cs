@@ -1,16 +1,14 @@
-﻿using System.Globalization;
+﻿#nullable enable annotations
+
 using System.Security.Cryptography;
 using System.Text;
 using CommandLine;
-using CsvHelper;
-using CsvHelper.Configuration;
 using dotenv.net;
 using Flurl.Http;
 using LibCalTypes;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.FileSystemGlobbing;
 
 // How many rows to stage/PUT/MERGE per Snowflake round trip. Bigger batches mean fewer round trips
 // (faster), but also mean a single bad row fails a bigger batch and produces a wider re-run window.
@@ -24,8 +22,8 @@ var parser = new Parser(settings =>
     settings.CaseInsensitiveEnumValues = true;
     settings.HelpWriter = Console.Error;
 });
-await parser.ParseArguments<UpdateOptions, BatchOptions, PrintSchemaOptions>(args)
-    .MapResult<UpdateOptions, BatchOptions, PrintSchemaOptions, Task>(RunUpdate, RunBatch, PrintSchema, NoOpOnError);
+await parser.ParseArguments<UpdateOptions, PrintSchemaOptions>(args)
+    .MapResult<UpdateOptions, PrintSchemaOptions, Task>(RunUpdate, PrintSchema, NoOpOnError);
 
 async Task RunUpdate(UpdateOptions updateOptions)
 {
@@ -122,9 +120,6 @@ async Task SaveEventBatchAsync(Database db, int calendarId, List<Event> events, 
             @event.FutureDates ??= [];
             foreach (var registrant in @event.Registrants) { registrant.UserHash = Hash(registrant.Email); }
             foreach (var category in @event.Category) { category.EventId = @event.Id; }
-            // just truncate strings longer than 2000 for oracle
-            @event.Description = Truncate(@event.Description, 2000);
-            @event.MoreInfo = Truncate(@event.MoreInfo, 2000);
         }
 
         await SnowflakeBulkLoader.BulkUpsertAsync(db.Database, "LIBCAL_EVENTS", SnowflakeBulkLoader.PrimaryKeyColumns(db.Model, typeof(Event)),
@@ -164,7 +159,6 @@ async Task SaveAppointmentBatchAsync(Database db, LibCalClient libCalClient, App
             foreach (var answer in booking.Answers ?? [])
             {
                 answer.BookingId = booking.Id;
-                answer.Answer = Truncate(answer.Answer, 2000);
                 if (questionsSeen.Add(answer.QuestionId)) { newQuestionIds.Add(answer.QuestionId); }
             }
 
@@ -191,7 +185,6 @@ async Task SaveAppointmentBatchAsync(Database db, LibCalClient libCalClient, App
             try
             {
                 var user = await libCalClient.GetAppointmentUser(userId);
-                user.Description = Truncate(user.Description, 2000);
                 users.Add(user);
             }
             catch (FlurlHttpException exception)
@@ -237,111 +230,6 @@ async Task SaveAppointmentBatchAsync(Database db, LibCalClient libCalClient, App
     }
 }
 
-async Task RunBatch(BatchOptions batchOptions)
-{
-    await using var db = new Database(config);
-    var rows = new List<ArchivedSpaceBooking>();
-
-    // This is used to expand out glob/wildcard patterns in the input
-    var fileMatcher = new Matcher();
-    fileMatcher.AddIncludePatterns(batchOptions.Files);
-    foreach (var path in fileMatcher.GetResultsInFullPath(Directory.GetCurrentDirectory()))
-    {
-        Console.WriteLine(path);
-        using var reader = new StreamReader(path);
-        // These files sometimes have more headers than actual data, which would throw an exception when reading
-        // We override that by setting MissingFieldFound to a no-op function
-        var csvConfig = new CsvConfiguration(CultureInfo.InvariantCulture) { MissingFieldFound = _ => { } };
-        using var csv = new CsvReader(reader, csvConfig);
-        await csv.ReadAsync();
-        if (string.IsNullOrEmpty(csv.GetField(2)))
-        {
-            // Old room booking format
-            await csv.ReadAsync();
-            csv.ReadHeader();
-            while (await csv.ReadAsync())
-            {
-                if (string.IsNullOrEmpty(csv.GetField(2)))
-                {
-                    // Skip empty & header lines between datasets
-                    await csv.ReadAsync();
-                    await csv.ReadAsync();
-                }
-                else
-                {
-                    var fromDate = ConstructDate("Date", "Start Time");
-                    var duration = csv.GetField("Duration (minutes)");
-                    rows.Add(new ArchivedSpaceBooking
-                    {
-                        // FirstName = csv.GetField("First Name"),
-                        // LastName = csv.GetField("Last Name"),
-                        // Email = csv.GetField("Email"),
-                        // Account = csv.GetField("Account"),
-                        // PublicNickname = csv.GetField("Booking Nickname"),
-                        UserHash = Hash(csv.GetField("Account")),
-                        FromDate = fromDate,
-                        ToDate = string.IsNullOrEmpty(duration) ? null : fromDate?.AddMinutes(int.Parse(duration)),
-                        CreatedDate = ConstructDate("Booking Created"),
-                        Status = csv.GetField("Status"),
-                        ShowedUp = csv.GetField("User Showed Up?"),
-                        SpaceName = csv.GetField("Room"),
-                    });
-                }
-            }
-        }
-        else
-        {
-            csv.ReadHeader();
-            while (await csv.ReadAsync())
-            {
-                rows.Add(new ArchivedSpaceBooking
-                {
-                    BookingId = csv.GetField("Booking ID"),
-                    SpaceId = csv.GetField("Space ID"),
-                    SpaceName = csv.GetField("Space Name"),
-                    Location = csv.GetField("Location"),
-                    Zone = csv.GetField("Zone"),
-                    Category = csv.GetField("Category"),
-                    // FirstName = csv.GetField("First Name"),
-                    // LastName = csv.GetField("Last Name"),
-                    // Email = csv.GetField("Email"),
-                    // PublicNickname = csv.GetField("Public Nickname"),
-                    // Account = csv.GetField("Account"),
-                    UserHash = Hash(csv.GetField("Account")),
-                    FromDate = ConstructDate("From Date", "From Time"),
-                    ToDate = ConstructDate("To Date", "To Time"),
-                    CreatedDate = ConstructDate("Created Date", "Created Time"),
-                    EventId = csv.GetField("Event ID"),
-                    EventTitle = csv.GetField("Event Title"),
-                    EventStart = ConstructDate("Event Start"),
-                    EventEnd = ConstructDate("Event End"),
-                    Status = csv.GetField("Status"),
-                    CancelledByUser = csv.GetField("Cancelled By User"),
-                    CancelledAt = ConstructDate("Cancelled At"),
-                    ShowedUp = csv.GetField("Showed Up"),
-                    CheckedInDate = ConstructDate("Checked In Date", "Checked In Time"),
-                    CheckedOutDate = ConstructDate("Checked Out Date", "Checked Out Time"),
-                    Cost = csv.GetField("Cost"),
-                    BookingFormAnswers = csv.GetField("Booking Form Answers"),
-                });
-            }
-        }
-
-        DateTime? ConstructDate(string datePart, string timePart = null)
-        {
-            var date = datePart is null ? null : csv.GetField(datePart);
-            var time = timePart is null ? null : csv.GetField(timePart);
-            if (string.IsNullOrEmpty(date)) { return null; }
-            return string.IsNullOrEmpty(time) ? DateTime.Parse(date) : DateTime.Parse(date + " " + time);
-        }
-    }
-
-    // ID is Snowflake's auto-incrementing identity column here - MapColumns skips any property with
-    // ValueGenerated.OnAdd automatically, so it's excluded without needing a hand-maintained list.
-    await SnowflakeBulkLoader.BulkInsertAsync(db.Database, "LIBCAL_ARCHIVED_SPACE_BOOKINGS",
-        SnowflakeBulkLoader.MapColumns<ArchivedSpaceBooking>(db.Model), rows);
-}
-
 async Task PrintSchema(PrintSchemaOptions _)
 {
     await using var db = new Database(config);
@@ -349,8 +237,6 @@ async Task PrintSchema(PrintSchemaOptions _)
 }
 
 Task NoOpOnError(IEnumerable<Error> _) => Task.CompletedTask;
-
-string Truncate(string str, int len) => str.Length > len ? str[..len] : str;
 
 string Hash(string str) =>
     Convert.ToHexString(MD5.HashData(Encoding.UTF8.GetBytes(str.ToLowerInvariant()))).ToLowerInvariant();

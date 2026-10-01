@@ -121,6 +121,7 @@ class Database : DbContext
             bookings.Ignore(b => b.LastName);
         });
 
+        // DEPRECATED: this table exists in the DB, but is not updated
         builder.Entity<ArchivedSpaceBooking>(archivedBookings =>
         {
             archivedBookings.ToTable("LIBCAL_ARCHIVED_SPACE_BOOKINGS");
