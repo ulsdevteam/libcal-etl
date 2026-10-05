@@ -76,7 +76,7 @@ namespace libcal_etl.Migrations
                         .Annotation("Snowflake:Identity", "START 1 INCREMENT 1 ORDER")
                         .Annotation("Snowflake:ValueGenerationStrategy", SnowflakeValueGenerationStrategy.AutoIncrement),
                     BOOKING_ID = table.Column<string>(type: "VARCHAR(16777216)", nullable: true),
-                    SPACE_ID = table.Column<string>(type: "VARCHAR(16777216)", nullable: true),
+                    SPACE_ID = table.Column<long>(type: "NUMBER(19,0)", nullable: true),
                     SPACE_NAME = table.Column<string>(type: "VARCHAR(16777216)", nullable: true),
                     LOCATION = table.Column<string>(type: "VARCHAR(16777216)", nullable: true),
                     ZONE = table.Column<string>(type: "VARCHAR(16777216)", nullable: true),

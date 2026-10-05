@@ -217,7 +217,7 @@ namespace libcal_etl.Migrations
                         .HasColumnName("SHOWED_UP");
 
                     b.Property<string>("SpaceId")
-                        .HasColumnType("VARCHAR(16777216)")
+                        .HasColumnType("NUMBER(19,0)")
                         .HasColumnName("SPACE_ID");
 
                     b.Property<string>("SpaceName")
