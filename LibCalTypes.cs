@@ -482,7 +482,7 @@ public class ArchivedSpaceBooking
 {
     public long Id { get; set; }
     public string BookingId { get; set; }
-    public string SpaceId { get; set; }
+    public long SpaceId { get; set; }
     public string SpaceName { get; set; }
     public string Location { get; set; }
     public string Zone { get; set; }
